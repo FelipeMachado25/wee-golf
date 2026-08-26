@@ -14,7 +14,10 @@ export function connectRoom(args: {
   onClose?: () => void;
 }) {
   const socket = new PartySocket({
-    host: process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "127.0.0.1:1999",
+    host: process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "127.0.0.1:8787",
+    // partyserver routes /parties/:party/:room, where :party is the Durable
+    // Object binding name ("WeeGolfRoom") in kebab-case.
+    party: "wee-golf-room",
     room: args.roomId,
     query: { role: args.role, peerId: args.peerId },
   });

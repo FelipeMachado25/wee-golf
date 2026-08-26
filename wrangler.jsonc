@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wee-golf",
+  "main": "party/server.ts",
+  "compatibility_date": "2025-01-01",
+  "durable_objects": {
+    "bindings": [{ "name": "WeeGolfRoom", "class_name": "WeeGolfRoom" }]
+  },
+  // Free plan only supports SQLite-backed Durable Objects — hence new_sqlite_classes.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WeeGolfRoom"] }],
+  "observability": { "enabled": true }
+}

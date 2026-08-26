@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "types": ["@cloudflare/workers-types"],
+    "lib": ["esnext"]
+  },
+  "include": ["./**/*.ts", "../lib/networking/partykit/protocol.ts"]
+}

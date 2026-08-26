@@ -8,7 +8,11 @@ before touching code. The detailed phase plan lives in `tasks/phase-0-plan.md`.
 
 - **Next.js 15** (App Router, Turbopack). Do NOT move to Next 16.
 - TypeScript strict · Tailwind v4 (`@tailwindcss/postcss`)
-- **PartyKit** — signaling only, deployed separately (`npm run party:deploy`), never on Vercel.
+- **partyserver on Cloudflare Workers** — signaling only, deployed separately with wrangler
+  (`npm run party:deploy`), never on Vercel. (PartyKit's hosted platform is full — its
+  shared partykit.dev zone hit Cloudflare's 10k-domain limit — so we run the maintained
+  successor, `partyserver`, on our own free Workers account. The browser client still
+  uses `partysocket`, with `party: "wee-golf-room"`.)
 - **WebRTC RTCDataChannel** for live telemetry — ALWAYS `{ ordered: false, maxRetransmits: 0 }`.
 - Vitest for pure logic modules only (`lib/**/*.test.ts`). Integration is verified by
   hand on real devices via checkpoints, not mocked.
@@ -17,21 +21,23 @@ before touching code. The detailed phase plan lives in `tasks/phase-0-plan.md`.
 
 ```bash
 npm run dev          # Next on :3000
-npm run party:dev    # PartyKit on :1999 (separate terminal, required for rooms)
+npm run party:dev    # wrangler dev on :8787 (separate terminal, required for rooms)
 npm test             # vitest run
-npm run party:deploy # deploy signaling server → wee-golf.<user>.partykit.dev
+npm run party:deploy # deploy signaling server → wee-golf.<subdomain>.workers.dev
 npx vercel --prod    # deploy app
 ```
 
 Env (`.env.local`, template in `.env.example`):
-- `NEXT_PUBLIC_PARTYKIT_HOST` — `127.0.0.1:1999` locally, `wee-golf.<user>.partykit.dev` in prod (no protocol).
+- `NEXT_PUBLIC_PARTYKIT_HOST` — `127.0.0.1:8787` locally, `wee-golf.<subdomain>.workers.dev` in prod (no protocol).
 - `NEXT_PUBLIC_APP_URL` — optional QR-base override for local LAN testing only. Unset in prod.
 
 ## Layout
 
 ```
-party/server.ts                    PartyKit room: host/controller roles, presence,
-                                   TARGETED signal relay (never broadcast SDP)
+party/server.ts                    Durable Object room (partyserver): host/controller
+                                   roles, presence, TARGETED relay (never broadcast SDP)
+wrangler.jsonc                     Workers config: SQLite-backed DO binding WeeGolfRoom
+party/tsconfig.json                workers-types build; party/ is EXCLUDED from root tsconfig
 app/page.tsx                       host screen (thin server component)
 app/controller/[roomId]/page.tsx   phone screen (thin; Next 15 async params pattern)
 components/host/                   "use client" host UI (QR panel, telemetry debug)
@@ -48,7 +54,7 @@ lib/audio/rumble.ts                Web Audio low-freq "vibration" pulse
 
 - Code, file names, types, commit messages: **English**. Comments may explain "why" in either language.
 - `"use client"` lives only under `components/`; `app/` pages stay thin server components.
-- **`lib/networking/partykit/protocol.ts` must not import DOM or Next types.** PartyKit's
+- **`lib/networking/partykit/protocol.ts` must not import DOM or Next types.** wrangler's
   esbuild compiles it for workerd. DOM-ish types (e.g. `RTCIceCandidateInit`) are
   redeclared structurally there.
 - Never trust the network: inbound socket messages go through `isServerMessage` /
