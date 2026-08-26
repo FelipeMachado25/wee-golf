@@ -1,14 +1,24 @@
-/** 32 characters, no 0/O/1/I/L, so an id can be read aloud or typed without
- *  ambiguity. Being 32 (a power of two dividing 256) makes the modulo over
- *  random bytes uniform — no bias. */
-export const ROOM_ID_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+/** 31 characters: digits 2-9 plus uppercase letters minus O/I/L, so an id can
+ *  be read aloud or typed without ambiguity (0/O, 1/I/L). 31 does not divide
+ *  256, so plain modulo over random bytes would be biased — we use rejection
+ *  sampling instead: discard bytes >= 248 (the largest multiple of 31 <= 256),
+ *  then modulo is exactly uniform. */
+export const ROOM_ID_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 export const ROOM_ID_LENGTH = 6;
 
+const REJECTION_LIMIT = 256 - (256 % ROOM_ID_ALPHABET.length); // 248
+
 export function generateRoomId(): string {
-  const bytes = new Uint8Array(ROOM_ID_LENGTH);
-  crypto.getRandomValues(bytes);
   let out = "";
-  for (const b of bytes) out += ROOM_ID_ALPHABET[b % ROOM_ID_ALPHABET.length];
+  while (out.length < ROOM_ID_LENGTH) {
+    const bytes = new Uint8Array(ROOM_ID_LENGTH * 2);
+    crypto.getRandomValues(bytes);
+    for (const b of bytes) {
+      if (b >= REJECTION_LIMIT) continue;
+      out += ROOM_ID_ALPHABET[b % ROOM_ID_ALPHABET.length];
+      if (out.length === ROOM_ID_LENGTH) break;
+    }
+  }
   return out;
 }
 
