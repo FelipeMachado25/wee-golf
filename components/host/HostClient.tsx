@@ -6,6 +6,7 @@ import { connectRoom, type RoomConnection } from "@/lib/networking/partykit/clie
 import { createHostPeerRegistry } from "@/lib/networking/webrtc/peer-host";
 import { generateRoomId } from "@/lib/room/room-id";
 import { QrPanel } from "./QrPanel";
+import { TelemetryDebug } from "./TelemetryDebug";
 
 export type Transport = "p2p" | "relay";
 
@@ -121,6 +122,7 @@ export function HostClient() {
           <QrPanel roomId={roomId} />
           <p className="text-sm text-neutral-400">Scan with your phone to join</p>
           <PeerList peers={peers} />
+          <TelemetryDebug statsRef={statsRef} peerIds={Object.keys(peers)} />
         </>
       )}
     </main>

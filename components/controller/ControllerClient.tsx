@@ -6,6 +6,7 @@ import { connectRoom, type RoomConnection } from "@/lib/networking/partykit/clie
 import { createControllerPeer, type ControllerPeer } from "@/lib/networking/webrtc/peer-controller";
 import { P2P_FALLBACK_TIMEOUT_MS } from "@/lib/networking/webrtc/config";
 import { ConnectionBadge, type ConnectionPhase } from "./ConnectionBadge";
+import { PermissionGate } from "./PermissionGate";
 
 export function ControllerClient({ roomId }: { roomId: string }) {
   const [phase, setPhase] = useState<ConnectionPhase>("connecting");
@@ -95,9 +96,6 @@ export function ControllerClient({ roomId }: { roomId: string }) {
     }
     return "dropped";
   }, []);
-  // sendSample is wired into PermissionGate in the sensors task; referenced
-  // here so the pipeline contract is already in place.
-  void sendSample;
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-neutral-950 p-6 text-neutral-100">
@@ -106,9 +104,7 @@ export function ControllerClient({ roomId }: { roomId: string }) {
       </h1>
       <div className="font-mono text-2xl tracking-[0.3em] text-emerald-400">{roomId}</div>
       <ConnectionBadge phase={phase} hidden={hidden} />
-      <p className="max-w-xs text-center text-sm text-neutral-500">
-        Motion capture arrives in the next checkpoint — this build verifies the connection only.
-      </p>
+      <PermissionGate sendSample={sendSample} />
     </main>
   );
 }
