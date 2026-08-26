@@ -98,12 +98,10 @@ lib/audio/rumble.ts                Web Audio low-freq "vibration" pulse
 
 ## Phase status
 
-- **Phase 0/1 (connection + sensors): DONE except final rumble A/B.**
-  - Checkpoints A–C approved by the user on real hardware (2026-08-26): iPhone scans the
-    QR, permission flow works, host shows live 60Hz telemetry. Transport reached **P2P**
-    on the user's network (fallback relay untested in the wild so far).
-  - Checkpoint D (rumble) pending: the 20/40/60/90Hz A/B on the iPhone speaker hasn't
-    produced a verdict yet — default stays at the brief's 20Hz until it does.
+- **Phase 0/1 (connection + sensors): DONE.** All four checkpoints approved by the user
+  on real hardware (2026-08-26): iPhone scans the QR, permission flow works, host shows
+  live 60Hz telemetry, transport reached **P2P** on the user's network (fallback relay
+  untested in the wild so far). Rumble default is **60Hz** — winner of the on-device A/B.
 - Open questions inherited by Phase 2: is TURN ever needed (P2P worked; relay fallback
   exists)? binary telemetry payload? orientation calibration for the swing model?
 - Phase 2+ (physics, procedural course, avatars, scoring): not started. Out of scope now.

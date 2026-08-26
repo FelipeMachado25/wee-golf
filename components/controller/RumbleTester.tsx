@@ -10,7 +10,7 @@ const DURATIONS = [100, 200, 400] as const;
  *  speaker can't reproduce 20Hz — the selectors exist so the real iPhone
  *  decides which frequency actually feels strongest. */
 export function RumbleTester() {
-  const [hz, setHz] = useState<number>(20);
+  const [hz, setHz] = useState<number>(60);
   const [ms, setMs] = useState<number>(100);
 
   return (

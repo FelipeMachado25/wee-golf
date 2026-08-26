@@ -13,11 +13,11 @@ export function isAudioUnlocked(): boolean {
   return ctx?.state === "running";
 }
 
-/** Brief-spec default: 20Hz sine, 100ms, max gain. hz is tunable because a
- *  phone speaker cannot reproduce 20Hz — what you feel is harmonic distortion
- *  and cone excursion, and 40–90Hz usually reads stronger. Checkpoint D is the
- *  on-device A/B that picks the final value (plan D9). */
-export function playRumble({ hz = 20, ms = 100, gain = 1.0 } = {}): void {
+/** Default 60Hz: winner of the Checkpoint D A/B on the user's real iPhone
+ *  (2026-08-26). The brief's original 20Hz is inaudible on a phone speaker —
+ *  it can't reproduce it; what you feel is harmonic distortion and cone
+ *  excursion, which is why the audible 40–90Hz band won (plan D9). */
+export function playRumble({ hz = 60, ms = 100, gain = 1.0 } = {}): void {
   if (!ctx || ctx.state !== "running") return;
   const now = ctx.currentTime;
   const osc = ctx.createOscillator();
