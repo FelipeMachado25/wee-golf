@@ -1,0 +1,89 @@
+# Wee Golf
+
+Multiplayer browser golf. Phones act as motion controllers (accelerometer/gyroscope);
+a host screen renders the game. This file is the contract for future sessions — read it
+before touching code. The detailed phase plan lives in `tasks/phase-0-plan.md`.
+
+## Stack (pinned — do not upgrade casually)
+
+- **Next.js 15** (App Router, Turbopack). Do NOT move to Next 16.
+- TypeScript strict · Tailwind v4 (`@tailwindcss/postcss`)
+- **PartyKit** — signaling only, deployed separately (`npm run party:deploy`), never on Vercel.
+- **WebRTC RTCDataChannel** for live telemetry — ALWAYS `{ ordered: false, maxRetransmits: 0 }`.
+- Vitest for pure logic modules only (`lib/**/*.test.ts`). Integration is verified by
+  hand on real devices via checkpoints, not mocked.
+
+## Commands
+
+```bash
+npm run dev          # Next on :3000
+npm run party:dev    # PartyKit on :1999 (separate terminal, required for rooms)
+npm test             # vitest run
+npm run party:deploy # deploy signaling server → wee-golf.<user>.partykit.dev
+npx vercel --prod    # deploy app
+```
+
+Env (`.env.local`, template in `.env.example`):
+- `NEXT_PUBLIC_PARTYKIT_HOST` — `127.0.0.1:1999` locally, `wee-golf.<user>.partykit.dev` in prod (no protocol).
+- `NEXT_PUBLIC_APP_URL` — optional QR-base override for local LAN testing only. Unset in prod.
+
+## Layout
+
+```
+party/server.ts                    PartyKit room: host/controller roles, presence,
+                                   TARGETED signal relay (never broadcast SDP)
+app/page.tsx                       host screen (thin server component)
+app/controller/[roomId]/page.tsx   phone screen (thin; Next 15 async params pattern)
+components/host/                   "use client" host UI (QR panel, telemetry debug)
+components/controller/             "use client" phone UI (permission gate, rumble)
+lib/room/room-id.ts                unbiased 6-char id, alphabet without 0/O/1/I/L
+lib/networking/partykit/protocol.ts  ⚠️ shared with party/server.ts — see rule below
+lib/networking/partykit/client.ts  typed PartySocket wrapper, validates inbound msgs
+lib/networking/webrtc/             config, ICE buffer, controller offerer, host registry
+lib/sensors/                       rate limiter (~60Hz), devicemotion capture
+lib/audio/rumble.ts                Web Audio low-freq "vibration" pulse
+```
+
+## Conventions
+
+- Code, file names, types, commit messages: **English**. Comments may explain "why" in either language.
+- `"use client"` lives only under `components/`; `app/` pages stay thin server components.
+- **`lib/networking/partykit/protocol.ts` must not import DOM or Next types.** PartyKit's
+  esbuild compiles it for workerd. DOM-ish types (e.g. `RTCIceCandidateInit`) are
+  redeclared structurally there.
+- Never trust the network: inbound socket messages go through `isServerMessage` /
+  `isClientMessage` guards, no blind casts.
+- Telemetry payloads carry a mandatory `seq` — the channel is unreliable/unordered and
+  the host diagnoses drops/reordering from it.
+
+## Architecture decisions (condensed — full rationale in tasks/phase-0-plan.md §2)
+
+- Room ids are generated **client-side** by the host (PartyKit rooms are lazy). Server
+  rejects a second host with `room-busy`; host regenerates and retries (max 5).
+- WebRTC roles are fixed: **controller = offerer, host = answerer**. No perfect
+  negotiation needed. The data channel is created BEFORE `createOffer`.
+- ICE candidates are buffered (`ice-buffer.ts`) until the remote description is set.
+- STUN only (Google + Twilio). No TURN yet. If the channel doesn't open in 8s, telemetry
+  falls back to the PartyKit WebSocket (`telemetry-fallback`); host shows P2P vs RELAY badge.
+- Host never `setState`s at 60Hz: samples land in a `useRef`, a rAF loop writes to the
+  DOM directly.
+
+## iOS gotchas (each one cost real debugging time — do not rediscover them)
+
+- `devicemotion` requires a **secure context**. Plain `http://<lan-ip>:3000` won't even
+  show the permission prompt. Test sensors against the Vercel HTTPS deploy, or use
+  `next dev --experimental-https` / a cloudflared tunnel.
+- `DeviceMotionEvent.requestPermission()` must be called **synchronously inside the user
+  gesture handler** — any `await` before it and iOS denies silently.
+- `event.acceleration` can be `null` on some devices; `accelerationIncludingGravity`
+  always arrives. We send acc, accG and rotationRate, each nullable.
+- The `AudioContext` is created+resumed in the same gesture as the permission tap.
+- The iPhone **mute switch silences Safari audio** — the #1 false "rumble is broken" report.
+- Screen sleep kills sensors → request a screen Wake Lock in the same gesture.
+- Backgrounding the tab stops `devicemotion` → watch `visibilitychange`.
+
+## Phase status
+
+- **Phase 0/1 (connection + sensors): IN PROGRESS** — plan in `tasks/phase-0-plan.md`.
+  Checkpoints A–D require explicit user approval on a real iPhone before committing.
+- Phase 2+ (physics, procedural course, avatars, scoring): not started. Out of scope now.
