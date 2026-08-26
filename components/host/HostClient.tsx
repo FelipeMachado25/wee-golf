@@ -140,13 +140,19 @@ function PeerList({ peers }: { peers: Record<PeerId, PeerRow> }) {
             className={
               p.rtcState === "connected"
                 ? "h-2 w-2 rounded-full bg-emerald-400"
-                : p.rtcState === "failed" || p.rtcState === "disconnected"
-                  ? "h-2 w-2 rounded-full bg-red-400"
-                  : "h-2 w-2 animate-pulse rounded-full bg-amber-400"
+                : p.transport === "relay"
+                  ? "h-2 w-2 rounded-full bg-amber-400"
+                  : p.rtcState === "failed" || p.rtcState === "disconnected"
+                    ? "h-2 w-2 rounded-full bg-red-400"
+                    : "h-2 w-2 animate-pulse rounded-full bg-amber-400"
             }
           />
           <span className="text-neutral-300">{p.peerId.slice(0, 8)}</span>
-          <span className="text-neutral-500">{p.rtcState}</span>
+          <span className="text-neutral-500">
+            {/* "failed" while the relay carries traffic is the fallback doing
+                its job — don't scare the room with raw ICE states. */}
+            {p.transport === "relay" && p.rtcState !== "connected" ? "via server" : p.rtcState}
+          </span>
           {p.transport && (
             <span className={p.transport === "p2p" ? "rounded bg-emerald-900 px-1.5 py-0.5 text-emerald-300" : "rounded bg-amber-900 px-1.5 py-0.5 text-amber-300"}>
               {p.transport.toUpperCase()}

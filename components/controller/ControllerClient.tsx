@@ -22,6 +22,8 @@ export function ControllerClient({ roomId }: { roomId: string }) {
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     const myPeerId = crypto.randomUUID();
 
+    let channelEverOpened = false;
+
     function startPeer(hostPeerId: PeerId, conn: RoomConnection) {
       if (disposed || peer) return;
       setPhase("signaling");
@@ -30,9 +32,16 @@ export function ControllerClient({ roomId }: { roomId: string }) {
         sendSignal: (to, payload) => conn.send({ type: "signal", to, payload }),
         events: {
           onState: (s) => {
-            if (s === "failed" || s === "closed") setPhase((p) => (p === "relay" ? p : "disconnected"));
+            if (s === "failed" || s === "closed") {
+              // ICE failure before the channel ever opened is the normal
+              // "this network blocks P2P" case — flip straight to the
+              // WebSocket relay instead of waiting out the 8s timer.
+              if (fallbackTimer) clearTimeout(fallbackTimer);
+              setPhase(channelEverOpened ? "disconnected" : "relay");
+            }
           },
           onChannelOpen: () => {
+            channelEverOpened = true;
             if (fallbackTimer) clearTimeout(fallbackTimer);
             setPhase("p2p");
           },
