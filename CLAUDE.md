@@ -88,8 +88,22 @@ lib/audio/rumble.ts                Web Audio low-freq "vibration" pulse
 - Screen sleep kills sensors → request a screen Wake Lock in the same gesture.
 - Backgrounding the tab stops `devicemotion` → watch `visibilitychange`.
 
+## Production
+
+- App: **https://wee-golf.vercel.app** (Vercel project `wee-golf`, org `felipemachado25s-projects`)
+- Signaling: **wee-golf.wee-golf.workers.dev** (Cloudflare Worker, deploy with `npm run party:deploy`)
+- Repo: **https://github.com/FelipeMachado25/wee-golf** (public) — every push to `main`
+  auto-deploys the app on Vercel. The Worker does NOT auto-deploy.
+- Local folder: `~/Desktop/04_Projects/We Sports` (note the space in the path — quote it).
+
 ## Phase status
 
-- **Phase 0/1 (connection + sensors): IN PROGRESS** — plan in `tasks/phase-0-plan.md`.
-  Checkpoints A–D require explicit user approval on a real iPhone before committing.
+- **Phase 0/1 (connection + sensors): DONE except final rumble A/B.**
+  - Checkpoints A–C approved by the user on real hardware (2026-08-26): iPhone scans the
+    QR, permission flow works, host shows live 60Hz telemetry. Transport reached **P2P**
+    on the user's network (fallback relay untested in the wild so far).
+  - Checkpoint D (rumble) pending: the 20/40/60/90Hz A/B on the iPhone speaker hasn't
+    produced a verdict yet — default stays at the brief's 20Hz until it does.
+- Open questions inherited by Phase 2: is TURN ever needed (P2P worked; relay fallback
+  exists)? binary telemetry payload? orientation calibration for the swing model?
 - Phase 2+ (physics, procedural course, avatars, scoring): not started. Out of scope now.
