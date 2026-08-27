@@ -15,7 +15,9 @@ export type WiiEvent =
 export const SWING_TUNING = {
   BACKSWING_START_DEG: 20, // rotating past this from the lock pose starts the meter
   BACKSWING_MAX_DEG: 120, // full-power top (generous — a natural raise reaches it)
-  IMPACT_DEG: 25, // swinging back within this of the lock pose fires (if fast)
+  IMPACT_DEG: 25, // direct hit: swinging back within this of the lock pose
+  IMPACT_PASS_MAX_DEG: 50, // swing-through: bottoming out under this also counts…
+  PASS_HYSTERESIS_DEG: 8, // …once the angle rises again by this much (passed bottom)
   MIN_DOWNSWING_RATE: 180, // deg/s |rot| somewhere in the swing to count as a strike
   SPIN_WINDOW_MS: 150, // post-impact observation for the dead-stop
   SPIN_STOP_RATE: 120, // mean |rot| below this in the window's 2nd half → backspin
@@ -45,6 +47,7 @@ export function createWiiSwing(onEvent: (e: WiiEvent) => void) {
   let phase: Phase = "idle";
   let g0: [number, number, number] | null = null;
   let topDeg = 0;
+  let minTheta = Infinity; // lowest angle seen after the top — the swing's bottom
   let peakRate = 0;
   let faceIntegral = 0;
   let lastT: number | null = null;
@@ -63,6 +66,7 @@ export function createWiiSwing(onEvent: (e: WiiEvent) => void) {
   function backToAddress() {
     phase = "address";
     topDeg = 0;
+    minTheta = Infinity;
     peakRate = 0;
     faceIntegral = 0;
   }
@@ -115,6 +119,7 @@ export function createWiiSwing(onEvent: (e: WiiEvent) => void) {
         if (theta >= SWING_TUNING.BACKSWING_START_DEG) {
           phase = "backswing";
           topDeg = theta;
+          minTheta = Infinity;
           peakRate = rate;
           faceIntegral = 0;
         }
@@ -127,7 +132,17 @@ export function createWiiSwing(onEvent: (e: WiiEvent) => void) {
       if (s.rot) faceIntegral += s.rot[2] * dt; // twist about the long axis
       onEvent({ type: "meter", power: meterOf(topDeg) });
 
-      if (theta <= SWING_TUNING.IMPACT_DEG) {
+      // Once we're past the top and descending, track the bottom of the arc.
+      if (theta < topDeg) minTheta = Math.min(minTheta, theta);
+
+      // Impact: either a direct pass through the lock cone, or a swing-through
+      // whose bottom stayed near it and is now clearly rising up the far side.
+      // Real swings drift off-plane — demanding a perfect return kills strikes.
+      const directHit = theta <= SWING_TUNING.IMPACT_DEG;
+      const passedBottom =
+        minTheta <= SWING_TUNING.IMPACT_PASS_MAX_DEG && theta >= minTheta + SWING_TUNING.PASS_HYSTERESIS_DEG;
+
+      if (directHit || passedBottom) {
         if (peakRate >= SWING_TUNING.MIN_DOWNSWING_RATE) {
           firedPower = Math.max(0.05, meterOf(topDeg));
           firedFace = Math.max(-SWING_TUNING.FACE_MAX_DEG, Math.min(SWING_TUNING.FACE_MAX_DEG, faceIntegral * SWING_TUNING.FACE_SCALE));
@@ -135,7 +150,7 @@ export function createWiiSwing(onEvent: (e: WiiEvent) => void) {
           spinStart = s.t;
           spinSum = 0;
           spinN = 0;
-        } else {
+        } else if (directHit) {
           // lowered gently — stay locked, just reset the charge
           backToAddress();
           onEvent({ type: "cancel" });

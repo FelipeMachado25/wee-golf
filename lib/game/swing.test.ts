@@ -80,6 +80,19 @@ describe("createWiiSwing", () => {
     expect(events.filter((e) => e.type === "swing")).toHaveLength(1);
   });
 
+  it("fires on a swing-through whose bottom never reaches the strict impact cone", () => {
+    // Real swings drift off-plane: raise to 100°, bottom out at 35° (>IMPACT_DEG)
+    // and follow through up the other side. Passing the bottom must count.
+    const s: Parameters<typeof seg>[0] = [];
+    seg(s, 0, 200, 0, 0);
+    seg(s, 200, 800, 0, 100, 120); // backswing
+    seg(s, 800, 1000, 100, 35, 500); // down…
+    seg(s, 1000, 1400, 35, 95, 450); // …through the bottom and up the far side
+    const swings = run(s).filter((e) => e.type === "swing");
+    expect(swings).toHaveLength(1);
+    expect((swings[0] as Extract<WiiEvent, { type: "swing" }>).power).toBeGreaterThan(0.5);
+  });
+
   it("clamps faceDeg to ±FACE_MAX_DEG", () => {
     const swing = run(fullSwing({ faceRate: 2000 })).find((e) => e.type === "swing") as Extract<WiiEvent, { type: "swing" }>;
     expect(Math.abs(swing.faceDeg)).toBeLessThanOrEqual(SWING_TUNING.FACE_MAX_DEG);
