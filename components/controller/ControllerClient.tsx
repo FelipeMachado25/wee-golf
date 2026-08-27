@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PeerId, TelemetrySample } from "@/lib/networking/partykit/protocol";
+import type { GameMessage, PeerId, TelemetrySample } from "@/lib/networking/partykit/protocol";
 import { connectRoom, type RoomConnection } from "@/lib/networking/partykit/client";
 import { createControllerPeer, type ControllerPeer } from "@/lib/networking/webrtc/peer-controller";
 import { P2P_FALLBACK_TIMEOUT_MS } from "@/lib/networking/webrtc/config";
+import { createSwingDetector } from "@/lib/game/swing";
+import { playRumble } from "@/lib/audio/rumble";
 import { ConnectionBadge, type ConnectionPhase } from "./ConnectionBadge";
 import { PermissionGate } from "./PermissionGate";
+import { GamePad, type PadState } from "./GamePad";
 
 export function ControllerClient({ roomId }: { roomId: string }) {
   const [phase, setPhase] = useState<ConnectionPhase>("connecting");
@@ -15,13 +18,77 @@ export function ControllerClient({ roomId }: { roomId: string }) {
   const peerRef = useRef<ControllerPeer | null>(null);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
+  const myPeerIdRef = useRef<string>("");
 
+  // --- game pad state --------------------------------------------------------
+  const [turn, setTurn] = useState<PadState["turn"]>(null);
+  const [aimLocked, setAimLocked] = useState(false);
+  const [swung, setSwung] = useState(false);
+  const [result, setResult] = useState<PadState["result"]>(null);
+  const [finished, setFinished] = useState<PadState["finished"]>(null);
+  const detectorArmed = useRef(false);
+
+  const sendGameToHost = useCallback((msg: GameMessage) => {
+    if (peerRef.current?.sendGame(msg)) return;
+    connRef.current?.send({ type: "game", to: "host", payload: msg });
+  }, []);
+
+  const handleGame = useCallback((msg: GameMessage) => {
+    switch (msg.kind) {
+      case "turn":
+        setTurn({ yourTurn: msg.yourTurn, strokeIndex: msg.strokeIndex });
+        setAimLocked(false);
+        setSwung(false);
+        detectorArmed.current = false;
+        if (msg.yourTurn) playRumble({ hz: 60, ms: 200 }); // ¡te toca!
+        break;
+      case "stroke-result":
+        setResult(msg);
+        setSwung(false);
+        setAimLocked(false);
+        detectorArmed.current = false;
+        if (msg.outcome === "holed") {
+          playRumble({ hz: 60, ms: 150 });
+          setTimeout(() => playRumble({ hz: 60, ms: 150 }), 250); // double pulse
+        }
+        break;
+      case "hole-finished":
+        setFinished(msg);
+        setTurn(null);
+        detectorArmed.current = false;
+        break;
+    }
+  }, []);
+  const handleGameRef = useRef(handleGame);
+  handleGameRef.current = handleGame;
+
+  const detector = useRef(
+    createSwingDetector((s) => {
+      if (!detectorArmed.current) return;
+      detectorArmed.current = false;
+      setSwung(true);
+      sendGameToHost({ kind: "swing", power: s.power, faceDeg: s.faceDeg });
+    }),
+  );
+
+  const onMotion = useCallback((s: Omit<TelemetrySample, "seq">) => {
+    if (detectorArmed.current) detector.current.feed({ t: s.t, accG: s.accG, rot: s.rot });
+  }, []);
+
+  function lockAim() {
+    detector.current.reset();
+    detectorArmed.current = true;
+    setAimLocked(true);
+    sendGameToHost({ kind: "aim-lock", aimDeg: 0 });
+  }
+
+  // --- connection ------------------------------------------------------------
   useEffect(() => {
     let disposed = false;
     let peer: ControllerPeer | null = null;
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     const myPeerId = crypto.randomUUID();
-
+    myPeerIdRef.current = myPeerId;
     let channelEverOpened = false;
 
     function startPeer(hostPeerId: PeerId, conn: RoomConnection) {
@@ -30,6 +97,7 @@ export function ControllerClient({ roomId }: { roomId: string }) {
       peer = createControllerPeer({
         hostPeerId,
         sendSignal: (to, payload) => conn.send({ type: "signal", to, payload }),
+        onGame: (msg) => handleGameRef.current(msg),
         events: {
           onState: (s) => {
             if (s === "failed" || s === "closed") {
@@ -50,8 +118,6 @@ export function ControllerClient({ roomId }: { roomId: string }) {
       });
       peerRef.current = peer;
       void peer.start();
-      // D5: if the channel hasn't opened by now, telemetry will flow over the
-      // WebSocket instead (send() routes it). Flip the badge so the user knows.
       fallbackTimer = setTimeout(() => {
         if (!disposed && phaseRef.current !== "p2p") setPhase("relay");
       }, P2P_FALLBACK_TIMEOUT_MS);
@@ -75,8 +141,10 @@ export function ControllerClient({ roomId }: { roomId: string }) {
           case "signal":
             void peer?.handleSignal(msg.payload);
             break;
+          case "game":
+            handleGameRef.current(msg.payload);
+            break;
           case "peer-left":
-            // Host gone: nothing to send to until it comes back.
             break;
         }
       },
@@ -95,8 +163,7 @@ export function ControllerClient({ roomId }: { roomId: string }) {
     };
   }, [roomId]);
 
-  /** Used by the sensor pipeline (PermissionGate): P2P when open, WebSocket
-   *  relay otherwise. Returns the transport used. */
+  /** Telemetry lane: P2P when open, WebSocket relay otherwise. */
   const sendSample = useCallback((sample: TelemetrySample): "p2p" | "relay" | "dropped" => {
     if (peerRef.current?.send(sample)) return "p2p";
     if (connRef.current) {
@@ -107,13 +174,17 @@ export function ControllerClient({ roomId }: { roomId: string }) {
   }, []);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-neutral-950 p-6 text-neutral-100">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-neutral-950 p-6 text-neutral-100">
       <h1 className="text-xl font-semibold tracking-tight">
         Wee Golf <span className="text-neutral-500">· controller</span>
       </h1>
       <div className="font-mono text-2xl tracking-[0.3em] text-emerald-400">{roomId}</div>
       <ConnectionBadge phase={phase} hidden={hidden} />
-      <PermissionGate sendSample={sendSample} />
+      <GamePad
+        state={{ turn, aimLocked, swung, result, finished, myPeerId: myPeerIdRef.current }}
+        onLockAim={lockAim}
+      />
+      <PermissionGate sendSample={sendSample} onMotion={onMotion} />
     </main>
   );
 }

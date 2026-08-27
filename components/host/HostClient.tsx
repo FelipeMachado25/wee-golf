@@ -1,12 +1,18 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
-import type { PeerId, TelemetrySample } from "@/lib/networking/partykit/protocol";
+import QRCode from "react-qr-code";
+import type { GameMessage, PeerId, TelemetrySample } from "@/lib/networking/partykit/protocol";
 import { connectRoom, type RoomConnection } from "@/lib/networking/partykit/client";
 import { createHostPeerRegistry } from "@/lib/networking/webrtc/peer-host";
 import { generateRoomId } from "@/lib/room/room-id";
 import { QrPanel } from "./QrPanel";
 import { TelemetryDebug } from "./TelemetryDebug";
+import type { GameBus } from "./game/useGameLoop";
+
+// three.js only ever loads in the browser
+const GameView = dynamic(() => import("./game/GameView").then((m) => m.GameView), { ssr: false });
 
 export type Transport = "p2p" | "relay";
 
@@ -36,7 +42,15 @@ export function HostClient() {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("connecting");
   const [peers, setPeers] = useState<Record<PeerId, PeerRow>>({});
+  const [mode, setMode] = useState<"lobby" | "playing">("lobby");
+  const [debug, setDebug] = useState(false);
   const statsRef = useRef<Map<PeerId, PeerStats>>(new Map());
+  const gameBusRef = useRef<GameBus | null>(null);
+  const sendGameRef = useRef<(to: PeerId, msg: GameMessage) => void>(() => {});
+
+  useEffect(() => {
+    setDebug(new URLSearchParams(window.location.search).has("debug"));
+  }, []);
 
   useEffect(() => {
     // Full init here, full teardown in cleanup — StrictMode's dev double-mount
@@ -49,11 +63,20 @@ export function HostClient() {
 
     const registry = createHostPeerRegistry({
       sendSignal: (to, payload) => conn?.send({ type: "signal", to, payload }),
-      onSample: (from, sample) => recordSample(stats, from, sample, "p2p"),
+      onSample: (from, sample) => {
+        recordSample(stats, from, sample, "p2p");
+        if (sample.rot) gameBusRef.current?.feedRot(from, sample.t, sample.rot[0]);
+      },
+      onGame: (from, msg) => gameBusRef.current?.handleGameMessage(from, msg),
       onPeerState: (from, s) => {
         setPeers((p) => (p[from] ? { ...p, [from]: { ...p[from], rtcState: s, transport: s === "connected" ? "p2p" : p[from].transport } } : p));
       },
     });
+
+    // Reliable outbound lane: events channel first, WS relay as fallback.
+    sendGameRef.current = (to, msg) => {
+      if (!registry.sendGame(to, msg)) conn?.send({ type: "game", to, payload: msg });
+    };
 
     function join() {
       if (disposed) return;
@@ -76,11 +99,13 @@ export function HostClient() {
             case "peer-joined":
               if (msg.peer.role === "controller") {
                 setPeers((p) => ({ ...p, [msg.peer.peerId]: { peerId: msg.peer.peerId, rtcState: "signaling", transport: null } }));
+                gameBusRef.current?.addPlayer(msg.peer.peerId);
               }
               break;
             case "peer-left":
               registry.removePeer(msg.peerId);
               stats.delete(msg.peerId);
+              gameBusRef.current?.removePlayer(msg.peerId);
               setPeers((p) => {
                 const next = { ...p };
                 delete next[msg.peerId];
@@ -92,7 +117,11 @@ export function HostClient() {
               break;
             case "telemetry-fallback":
               recordSample(stats, msg.from, msg.sample, "relay");
+              if (msg.sample.rot) gameBusRef.current?.feedRot(msg.from, msg.sample.t, msg.sample.rot[0]);
               setPeers((p) => (p[msg.from] && p[msg.from].transport !== "relay" ? { ...p, [msg.from]: { ...p[msg.from], transport: "relay" } } : p));
+              break;
+            case "game":
+              gameBusRef.current?.handleGameMessage(msg.from, msg.payload);
               break;
           }
         },
@@ -106,6 +135,28 @@ export function HostClient() {
       conn?.close();
     };
   }, []);
+
+  const peerIds = Object.keys(peers);
+  const canStart = peerIds.length > 0 || debug;
+
+  if (mode === "playing") {
+    return (
+      <div className="relative">
+        <GameView
+          initialPeers={peerIds.length > 0 ? peerIds : ["DEBUG"]}
+          sendGame={(to, msg) => sendGameRef.current(to, msg)}
+          busRef={gameBusRef}
+          debug={debug}
+        />
+        {/* QR shrinks to a corner so latecomers can still join */}
+        {roomId && (
+          <div className="absolute bottom-4 right-4 z-10 flex flex-col items-center gap-1 rounded-xl bg-white p-2 opacity-80">
+            <QrCorner roomId={roomId} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-10 bg-neutral-950 p-8 text-neutral-100">
@@ -122,10 +173,29 @@ export function HostClient() {
           <QrPanel roomId={roomId} />
           <p className="text-sm text-neutral-400">Scan with your phone to join</p>
           <PeerList peers={peers} />
-          <TelemetryDebug statsRef={statsRef} peerIds={Object.keys(peers)} />
+          <button
+            onClick={() => canStart && setMode("playing")}
+            disabled={!canStart}
+            className="h-14 rounded-2xl bg-emerald-500 px-10 text-lg font-bold text-neutral-950 shadow-lg shadow-emerald-500/20 active:scale-95 disabled:opacity-30"
+          >
+            Start hole ⛳
+          </button>
+          <TelemetryDebug statsRef={statsRef} peerIds={peerIds} />
         </>
       )}
     </main>
+  );
+}
+
+function QrCorner({ roomId }: { roomId: string }) {
+  const [base, setBase] = useState<string | null>(null);
+  useEffect(() => setBase(process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin), []);
+  if (!base) return null;
+  return (
+    <>
+      <QRCode value={`${base}/controller/${roomId}`} size={88} />
+      <span className="font-mono text-[10px] font-bold text-neutral-800">{roomId}</span>
+    </>
   );
 }
 

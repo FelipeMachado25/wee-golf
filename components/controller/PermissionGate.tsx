@@ -12,8 +12,11 @@ type WakeLockNavigator = Navigator & {
 
 export function PermissionGate({
   sendSample,
+  onMotion,
 }: {
   sendSample: (s: TelemetrySample) => "p2p" | "relay" | "dropped";
+  /** Raw motion tap for the swing detector — called with every sample. */
+  onMotion?: (s: Omit<TelemetrySample, "seq">) => void;
 }) {
   const [perm, setPerm] = useState<MotionPermission | "idle">("idle");
   const [sent, setSent] = useState(0);
@@ -33,6 +36,7 @@ export function PermissionGate({
       if (result === "granted" || result === "not-required") {
         stopRef.current?.();
         stopRef.current = startMotionCapture((s) => {
+          onMotion?.(s);
           const sample: TelemetrySample = { ...s, seq: seqRef.current++ };
           if (sendSample(sample) !== "dropped") sentRef.current += 1;
         });

@@ -1,0 +1,36 @@
+"use client";
+
+import { useMemo, type RefObject } from "react";
+import type { GameMessage, PeerId } from "@/lib/networking/partykit/protocol";
+import { HOLE_ONE } from "@/lib/game/terrain";
+import { useGameLoop, type GameBus } from "./useGameLoop";
+import { GameCanvas } from "./GameCanvas";
+import { Hud } from "./Hud";
+import { TestStrokeBar } from "./TestStrokeBar";
+
+/** The playing-mode surface: 3D scene + HUD, owning the simulation loop.
+ *  HostClient stays the network owner and talks through busRef. */
+export function GameView({
+  initialPeers,
+  sendGame,
+  busRef,
+  debug,
+}: {
+  initialPeers: PeerId[];
+  sendGame: (peerId: PeerId, msg: GameMessage) => void;
+  busRef: RefObject<GameBus | null>;
+  debug: boolean;
+}) {
+  const { turn, refs, lastStroke, fireDebugStroke } = useGameLoop({ initialPeers, sendGame, busRef });
+
+  const playerIndex = useMemo(() => new Map(turn.order.map((id, i) => [id, i])), [turn.order]);
+  const labels = useMemo(() => new Map(turn.order.map((id, i) => [id, id === "DEBUG" ? "DEBUG" : `P${i + 1}`])), [turn.order]);
+
+  return (
+    <div className="relative h-screen w-screen overflow-hidden bg-[#0b1020]">
+      <GameCanvas hole={HOLE_ONE} refs={refs} playerIndex={playerIndex} />
+      <Hud turn={turn} lastStroke={lastStroke} playerIndex={playerIndex} labels={labels} />
+      {debug && <TestStrokeBar onFire={fireDebugStroke} />}
+    </div>
+  );
+}
