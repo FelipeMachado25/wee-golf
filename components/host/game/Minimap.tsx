@@ -5,7 +5,7 @@ import type { PeerId } from "@/lib/networking/partykit/protocol";
 import type { HoleDef } from "@/lib/game/terrain";
 import { estimateMaxDistance } from "@/lib/game/clubs";
 import type { GameRefs } from "./useGameLoop";
-import { PLAYER_COLORS } from "./GameCanvas";
+import { PLAYER_COLORS } from "./palette";
 
 const SURFACE_FILL: Record<string, string> = {
   tee: "#a7f3d0",

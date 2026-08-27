@@ -18,3 +18,8 @@ export const DATA_CHANNEL_INIT: RTCDataChannelInit = {
 export const P2P_FALLBACK_TIMEOUT_MS = 8_000;
 
 export const TELEMETRY_HZ = 60;
+
+/** Conservative cap for one RTCDataChannel message. Safari negotiates a 64KB
+ *  SCTP maxMessageSize and THROWS on anything larger; staying well under it
+ *  keeps every browser happy. Bigger payloads take the WebSocket relay. */
+export const MAX_DC_MESSAGE_BYTES = 48_000;

@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import type { TurnState } from "@/lib/game/turns";
 import type { StrokeInput } from "@/lib/game/physics";
 import type { PeerId } from "@/lib/networking/partykit/protocol";
-import { PLAYER_COLORS } from "./GameCanvas";
+import { PLAYER_COLORS } from "./palette";
 import type { GameRefs } from "./useGameLoop";
 
 export function Hud({

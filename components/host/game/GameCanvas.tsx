@@ -8,7 +8,8 @@ import type { GameRefs } from "./useGameLoop";
 import type { PeerId } from "@/lib/networking/partykit/protocol";
 import { Avatars, type Profile } from "./Avatars";
 
-export const PLAYER_COLORS = ["#f87171", "#60a5fa", "#facc15", "#c084fc", "#34d399", "#fb923c"];
+export { PLAYER_COLORS } from "./palette";
+import { PLAYER_COLORS } from "./palette";
 
 const SURFACE_COLOR: Record<string, string> = {
   tee: "#a7f3d0",
@@ -19,7 +20,8 @@ const SURFACE_COLOR: Record<string, string> = {
   oob: "#0c4a6e",
 };
 
-const BALL_VISUAL_R = 0.35; // physical ball is invisible at 90m — render bigger
+const BALL_VISUAL_R = 0.14; // physical ball is invisible at 90m — render bigger,
+// but not bigger than the golfer holding the club
 
 export function GameCanvas({
   hole,
@@ -173,32 +175,52 @@ function colorFor(peer: PeerId, playerIndex: Map<PeerId, number>): string {
   return PLAYER_COLORS[(playerIndex.get(peer) ?? 0) % PLAYER_COLORS.length];
 }
 
-/** Direction arrow shown while the active player aims. */
+const AIM_MARKERS = 14;
+const AIM_SPACING = 1.6; // metres between markers
+
+/** Aim guide for the active player: a row of markers that each sit on the
+ *  terrain. A single long arrow buried itself in every uphill lie — sampling
+ *  the heightfield per marker keeps the line readable on any slope. */
 function AimArrow({ hole, refs }: { hole: HoleDef; refs: GameRefs }) {
   const group = useRef<THREE.Group>(null);
+  const markers = useRef<THREE.Mesh[]>([]);
+
   useFrame(() => {
     const g = group.current;
     if (!g) return;
     const active = refs.activePeer.current;
-    const aiming = refs.phase.current === "aiming" && active != null;
+    const aiming = refs.phase.current === "aiming" && active != null && !refs.ball.current;
     g.visible = aiming;
     if (!aiming) return;
+
     const pos = refs.rest.current?.get(active) ?? hole.tee;
-    const y = hole.height(pos.x, pos.z);
-    g.position.set(pos.x, y + 0.15, pos.z);
-    g.rotation.y = (refs.aimYawDeg.current * Math.PI) / 180;
+    const yaw = (refs.aimYawDeg.current * Math.PI) / 180;
+    const dx = Math.sin(yaw);
+    const dz = Math.cos(yaw);
+    markers.current.forEach((m, i) => {
+      const d = (i + 1) * AIM_SPACING;
+      const x = pos.x + dx * d;
+      const z = pos.z + dz * d;
+      m.position.set(x, hole.height(x, z) + 0.12, z);
+      m.rotation.y = yaw;
+      // fade out with distance so the line reads as direction, not range
+      (m.material as THREE.MeshStandardMaterial).opacity = 0.9 - (i / AIM_MARKERS) * 0.65;
+    });
   });
+
   return (
     <group ref={group}>
-      {/* arrow points toward +z, rotated by aim yaw */}
-      <mesh position={[0, 0, 3.2]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.09, 0.09, 4.4, 8]} />
-        <meshStandardMaterial color="#f8fafc" transparent opacity={0.9} />
-      </mesh>
-      <mesh position={[0, 0, 5.8]} rotation={[Math.PI / 2, 0, 0]}>
-        <coneGeometry args={[0.35, 1.0, 10]} />
-        <meshStandardMaterial color="#f8fafc" transparent opacity={0.9} />
-      </mesh>
+      {Array.from({ length: AIM_MARKERS }, (_, i) => (
+        <mesh
+          key={i}
+          ref={(m) => {
+            if (m) markers.current[i] = m;
+          }}
+        >
+          <boxGeometry args={[0.18, 0.04, 0.7]} />
+          <meshStandardMaterial color="#f8fafc" transparent opacity={0.9} depthWrite={false} />
+        </mesh>
+      ))}
     </group>
   );
 }

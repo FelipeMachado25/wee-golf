@@ -119,3 +119,17 @@ lib/audio/rumble.ts                Web Audio low-freq "vibration" pulse
 - Open questions inherited by Phase 2: is TURN ever needed (P2P worked; relay fallback
   exists)? binary telemetry payload? orientation calibration for the swing model?
 - Phase 2+ (physics, procedural course, avatars, scoring): not started. Out of scope now.
+
+## Verification
+
+`node scripts/smoke.mjs` drives a host page + an emulated iPhone controller in
+**WebKit** (Safari engine — what this game actually ships to) through join, profile,
+start-round, and reports uncaught exceptions plus a screenshot. Run it after any change
+to the game view: Chromium alone has hidden Safari-only breakage before (roundRect,
+SCTP message size).
+
+```bash
+npm run build && npx next start -p 3210 &   # app
+npx wrangler dev &                          # signaling
+node scripts/smoke.mjs
+```

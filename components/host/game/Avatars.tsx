@@ -6,7 +6,7 @@ import * as THREE from "three";
 import type { PeerId } from "@/lib/networking/partykit/protocol";
 import type { HoleDef } from "@/lib/game/terrain";
 import type { GameRefs } from "./useGameLoop";
-import { PLAYER_COLORS } from "./GameCanvas";
+import { PLAYER_COLORS } from "./palette";
 
 export type Profile = { name: string; face?: string };
 
@@ -88,9 +88,10 @@ function SuitGuy({
 
     const y = hole.height(pos.x, pos.z);
     const yaw = isActive ? (refs.aimYawDeg.current * Math.PI) / 180 : Math.PI; // idle guys face the tee cam
-    // Stand beside the ball, on the left of the aim direction.
-    const side = 0.55;
-    g.position.set(pos.x - Math.cos(yaw) * side, y, pos.z + Math.sin(yaw) * side);
+    // Stand clear of the ball, to the left of the aim direction, and a step
+    // behind it — otherwise the golfer renders on top of his own ball.
+    const side = 0.85;
+    g.position.set(pos.x - Math.cos(yaw) * side - Math.sin(yaw) * 0.25, y, pos.z + Math.sin(yaw) * side - Math.cos(yaw) * 0.25);
     g.rotation.y = yaw;
 
     // Swing animation: arms track the live meter while aiming; when the
@@ -186,7 +187,10 @@ function NameTag({ name, accent }: { name: string; accent: string }) {
     const w = Math.min(248, ctx.measureText(name).width + 28);
     ctx.fillStyle = "rgba(0,0,0,0.55)";
     ctx.beginPath();
-    ctx.roundRect((256 - w) / 2, 10, w, 44, 12);
+    // roundRect is missing on older Safari — a plain rect is a fine fallback,
+    // and this used to take the whole canvas down with a TypeError.
+    if (typeof ctx.roundRect === "function") ctx.roundRect((256 - w) / 2, 10, w, 44, 12);
+    else ctx.rect((256 - w) / 2, 10, w, 44);
     ctx.fill();
     ctx.fillStyle = accent;
     ctx.fillText(name, 128, 33, 236);

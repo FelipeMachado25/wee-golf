@@ -1,6 +1,6 @@
 import type { GameMessage, IceCandidateInit, PeerId, SignalPayload, TelemetrySample } from "../partykit/protocol";
 import { isGameMessage } from "../partykit/protocol";
-import { DATA_CHANNEL_INIT, EVENTS_CHANNEL_LABEL, ICE_SERVERS, TELEMETRY_CHANNEL_LABEL } from "./config";
+import { DATA_CHANNEL_INIT, EVENTS_CHANNEL_LABEL, ICE_SERVERS, MAX_DC_MESSAGE_BYTES, TELEMETRY_CHANNEL_LABEL } from "./config";
 import { createIceBuffer } from "./ice-buffer";
 
 export type ControllerPeerEvents = {
@@ -75,8 +75,16 @@ export function createControllerPeer(args: {
     /** Reliable lane. Returns false when the caller must use the WS fallback. */
     sendGame(msg: GameMessage): boolean {
       if (ec.readyState !== "open") return false;
-      ec.send(JSON.stringify(msg));
-      return true;
+      const payload = JSON.stringify(msg);
+      // Safari's SCTP maxMessageSize is 64KB; oversize sends THROW and used to
+      // take the whole app down. Fall back to the relay instead of crashing.
+      if (payload.length > MAX_DC_MESSAGE_BYTES) return false;
+      try {
+        ec.send(payload);
+        return true;
+      } catch {
+        return false;
+      }
     },
 
     close() {

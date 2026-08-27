@@ -4,8 +4,9 @@ import { useRef, useState } from "react";
 
 /** Name + optional selfie, sent once over the reliable lane. Skipping the
  *  photo is a first-class choice: the host then gives you a procedurally
- *  ugly face instead. The image is downscaled to 128px here so the payload
- *  stays a few KB — the protocol guard caps it anyway. */
+ *  ugly face instead. The image is downscaled hard here: a data URL over
+ *  ~48KB cannot cross an RTCDataChannel on Safari at all, so 96px/q0.6
+ *  (a few KB) keeps profiles on the fast lane. */
 export function ProfileEditor({
   initialName,
   onSave,
@@ -19,7 +20,7 @@ export function ProfileEditor({
   const fileInput = useRef<HTMLInputElement>(null);
 
   async function pickFace(file: File) {
-    const dataUrl = await downscale(file, 128);
+    const dataUrl = await downscale(file, 96);
     setFace(dataUrl);
   }
 
@@ -102,7 +103,7 @@ function downscale(file: File, size: number): Promise<string> {
       const s = Math.min(img.width, img.height);
       ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
       URL.revokeObjectURL(url);
-      resolve(c.toDataURL("image/jpeg", 0.8));
+      resolve(c.toDataURL("image/jpeg", 0.6));
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);

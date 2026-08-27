@@ -11,6 +11,7 @@ import { QrPanel } from "./QrPanel";
 import { TelemetryDebug } from "./TelemetryDebug";
 import type { GameBus } from "./game/useGameLoop";
 import type { Profile } from "./game/Avatars";
+import { GameErrorBoundary } from "./game/GameErrorBoundary";
 
 // three.js only ever loads in the browser
 const GameView = dynamic(() => import("./game/GameView").then((m) => m.GameView), { ssr: false });
@@ -155,6 +156,7 @@ export function HostClient() {
 
   if (mode === "playing") {
     return (
+      <GameErrorBoundary>
       <div className="relative">
         <GameView
           initialPeers={peerIds.length > 0 ? peerIds : ["DEBUG"]}
@@ -172,6 +174,7 @@ export function HostClient() {
           </div>
         )}
       </div>
+      </GameErrorBoundary>
     );
   }
 

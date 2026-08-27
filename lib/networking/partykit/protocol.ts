@@ -109,11 +109,12 @@ export function isGameMessage(v: unknown): v is GameMessage {
       return v.club === "driver" || v.club === "iron" || v.club === "wedge" || v.club === "putter";
     case "profile":
       // Name: user-chosen, uncapped in content by design; only sanity-bounded.
-      // Face: small data-URL (client downsizes to 128px) — cap the bytes.
+      // Face: small data-URL (client downsizes to 96px) — cap under the
+      // 48KB RTCDataChannel ceiling so profiles never take the slow path.
       return (
         typeof v.name === "string" &&
         v.name.length <= 24 &&
-        (v.face === undefined || (typeof v.face === "string" && v.face.length <= 120_000 && v.face.startsWith("data:image/")))
+        (v.face === undefined || (typeof v.face === "string" && v.face.length <= 40_000 && v.face.startsWith("data:image/")))
       );
     case "swing":
       return typeof v.power === "number" && typeof v.faceDeg === "number" && typeof v.backspin === "number";

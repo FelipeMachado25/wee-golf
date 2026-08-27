@@ -1,6 +1,6 @@
 import type { GameMessage, IceCandidateInit, PeerId, SignalPayload, TelemetrySample } from "../partykit/protocol";
 import { isGameMessage } from "../partykit/protocol";
-import { EVENTS_CHANNEL_LABEL } from "./config";
+import { EVENTS_CHANNEL_LABEL, MAX_DC_MESSAGE_BYTES } from "./config";
 import { ICE_SERVERS } from "./config";
 import { createIceBuffer, type IceBuffer } from "./ice-buffer";
 
@@ -87,8 +87,14 @@ export function createHostPeerRegistry(args: {
     sendGame(peerId: PeerId, msg: GameMessage): boolean {
       const ec = sessions.get(peerId)?.events;
       if (!ec || ec.readyState !== "open") return false;
-      ec.send(JSON.stringify(msg));
-      return true;
+      const payload = JSON.stringify(msg);
+      if (payload.length > MAX_DC_MESSAGE_BYTES) return false;
+      try {
+        ec.send(payload);
+        return true;
+      } catch {
+        return false;
+      }
     },
 
     removePeer(peerId: PeerId) {
