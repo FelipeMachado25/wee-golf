@@ -43,7 +43,9 @@ export function HostClient() {
   const [status, setStatus] = useState<Status>("connecting");
   const [peers, setPeers] = useState<Record<PeerId, PeerRow>>({});
   const [mode, setMode] = useState<"lobby" | "playing">("lobby");
+  const [holeCount, setHoleCount] = useState(3);
   const [debug, setDebug] = useState(false);
+  const seedRef = useRef((Date.now() ^ (Math.random() * 0xffffffff)) >>> 0);
   const statsRef = useRef<Map<PeerId, PeerStats>>(new Map());
   const gameBusRef = useRef<GameBus | null>(null);
   const sendGameRef = useRef<(to: PeerId, msg: GameMessage) => void>(() => {});
@@ -144,6 +146,8 @@ export function HostClient() {
       <div className="relative">
         <GameView
           initialPeers={peerIds.length > 0 ? peerIds : ["DEBUG"]}
+          holeCount={holeCount}
+          seed={seedRef.current}
           sendGame={(to, msg) => sendGameRef.current(to, msg)}
           busRef={gameBusRef}
           debug={debug}
@@ -173,12 +177,25 @@ export function HostClient() {
           <QrPanel roomId={roomId} />
           <p className="text-sm text-neutral-400">Scan with your phone to join</p>
           <PeerList peers={peers} />
+          <div className="flex items-center gap-2">
+            {[3, 6, 9].map((n) => (
+              <button
+                key={n}
+                onClick={() => setHoleCount(n)}
+                className={`rounded-xl px-5 py-2 font-mono text-sm font-bold ${
+                  holeCount === n ? "bg-emerald-500 text-neutral-950" : "bg-neutral-900 text-neutral-400"
+                }`}
+              >
+                {n} holes
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => canStart && setMode("playing")}
             disabled={!canStart}
             className="h-14 rounded-2xl bg-emerald-500 px-10 text-lg font-bold text-neutral-950 shadow-lg shadow-emerald-500/20 active:scale-95 disabled:opacity-30"
           >
-            Start hole ⛳
+            Start round ⛳
           </button>
           <TelemetryDebug statsRef={statsRef} peerIds={peerIds} />
         </>

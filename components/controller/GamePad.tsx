@@ -10,7 +10,9 @@ export type PadState = {
   swingPhase: SwingPhase;
   swung: boolean;
   result: Extract<GameMessage, { kind: "stroke-result" }> | null;
+  hole: Extract<GameMessage, { kind: "hole-start" }> | null;
   finished: Extract<GameMessage, { kind: "hole-finished" }> | null;
+  courseTotals: Extract<GameMessage, { kind: "course-finished" }> | null;
   myPeerId: string;
 };
 
@@ -29,7 +31,25 @@ export function GamePad({
   onLockAim: () => void;
   onReAim: () => void;
 }) {
-  const { turn, swingPhase, swung, result, finished } = state;
+  const { turn, swingPhase, swung, result, hole, finished, courseTotals } = state;
+  const holeChip = hole ? `Hole ${hole.index + 1}/${hole.total} · Par ${hole.par}` : null;
+
+  if (courseTotals) {
+    const sorted = [...courseTotals.totals].sort((a, b) => a.strokes - b.strokes);
+    const myRank = sorted.findIndex((s) => s.peerId === state.myPeerId);
+    const mine = sorted[myRank];
+    return (
+      <Panel tone="emerald">
+        <p className="text-2xl">🏆 Course complete</p>
+        {mine && (
+          <>
+            <p className="mt-2 font-mono text-5xl tabular-nums">#{myRank + 1}</p>
+            <p className="font-mono text-sm text-neutral-400">{mine.strokes} strokes total</p>
+          </>
+        )}
+      </Panel>
+    );
+  }
 
   if (finished) {
     const mine = finished.scores.find((s) => s.peerId === state.myPeerId);
@@ -37,6 +57,7 @@ export function GamePad({
       <Panel tone="emerald">
         <p className="text-2xl">⛳ Hole complete</p>
         {mine && <p className="mt-2 font-mono text-4xl tabular-nums">{mine.strokes} strokes</p>}
+        <p className="mt-2 text-xs text-neutral-500">Next hole coming up…</p>
       </Panel>
     );
   }
@@ -44,7 +65,7 @@ export function GamePad({
   if (!turn) {
     return (
       <Panel tone="neutral">
-        <p className="text-sm text-neutral-400">Waiting for the host to start the hole…</p>
+        <p className="text-sm text-neutral-400">Waiting for the host to start the round…</p>
       </Panel>
     );
   }
@@ -52,6 +73,7 @@ export function GamePad({
   if (!turn.yourTurn) {
     return (
       <Panel tone="neutral">
+        {holeChip && <p className="mb-1 font-mono text-[10px] tracking-wider text-neutral-500">{holeChip}</p>}
         <p className="text-lg">⏳ Another player is up</p>
         {result && <ResultLine result={result} />}
         <p className="mt-1 font-mono text-xs text-neutral-500">your strokes: {turn.strokeIndex}</p>
@@ -70,6 +92,7 @@ export function GamePad({
   if (swingPhase === "aim") {
     return (
       <Panel tone="emerald">
+        {holeChip && <p className="mb-1 font-mono text-[10px] tracking-wider text-neutral-500">{holeChip}</p>}
         <p className="mb-1 text-lg font-bold">Your turn — aim</p>
         <p className="mb-4 text-center text-sm text-neutral-300">
           Rotate the phone left/right — watch the arrow on the big screen.

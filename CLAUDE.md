@@ -98,6 +98,13 @@ lib/audio/rumble.ts                Web Audio low-freq "vibration" pulse
 
 ## Phase status
 
+- **Phase 2B (multi-hole courses): BUILT 2026-08-26** — seeded parametric hole generator
+  (`lib/game/course.ts`, same HoleDef contract), 3/6/9-hole selector in the host lobby,
+  automatic hole sequencing with per-hole and course-total scorecards. Swing is Wii-style
+  and button-armed: Lock captures the grip as reference, meter is grip-relative, strike
+  registers on any swing-through past the bottom, dead stop = backspin.
+- **Phase 2A (playable hole): DONE** — host-authoritative analytic physics (120Hz),
+  reliable "events" DataChannel + WS fallback, r3f low-poly render, round-robin turns.
 - **Phase 0/1 (connection + sensors): DONE.** All four checkpoints approved by the user
   on real hardware (2026-08-26): iPhone scans the QR, permission flow works, host shows
   live 60Hz telemetry, transport reached **P2P** on the user's network (fallback relay

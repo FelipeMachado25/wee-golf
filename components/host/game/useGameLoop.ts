@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { GameMessage, PeerId } from "@/lib/networking/partykit/protocol";
-import { HOLE_ONE, type HoleDef } from "@/lib/game/terrain";
+import type { HoleDef } from "@/lib/game/terrain";
 import { launch, step, type BallState, type StrokeInput } from "@/lib/game/physics";
 import { createTurnMachine, type TurnState } from "@/lib/game/turns";
 import { relAngle, SWING_TUNING } from "@/lib/game/swing";
@@ -10,6 +10,7 @@ import type { Vec3 } from "@/lib/game/vec";
 
 const DT = 1 / 120;
 const MAX_STEPS_PER_FRAME = 48; // tab hiccup guard: never simulate > 0.4s per frame
+const NEXT_HOLE_DELAY_MS = 6000; // scorecard breathing room between holes
 
 /** Host-side aim tuning (sign flips live here if the phone feels inverted). */
 export const AIM_TUNING = { SIGN: -1, MAX_DEG: 70 };
@@ -20,7 +21,7 @@ export type GameRefs = {
   aimYawDeg: RefObject<number>;
   activePeer: RefObject<PeerId | null>;
   phase: RefObject<TurnState["phase"]>;
-  /** Live Wii backswing meter of the active player, 0..1, -1 when not in address. */
+  /** Live Wii backswing meter of the active player, 0..1, -1 when not locked. */
   meter: RefObject<number>;
 };
 
@@ -33,14 +34,15 @@ export type GameBus = {
 };
 
 export function useGameLoop(args: {
-  hole?: HoleDef;
+  holes: HoleDef[];
   initialPeers: PeerId[];
   sendGame: (peerId: PeerId, msg: GameMessage) => void;
   busRef: RefObject<GameBus | null>;
 }) {
-  const hole = args.hole ?? HOLE_ONE;
   const [turn, setTurn] = useState<TurnState>({ order: [], current: null, phase: "finished", scores: [] });
   const [lastStroke, setLastStroke] = useState<StrokeInput | null>(null);
+  const [holeIndex, setHoleIndex] = useState(0);
+  const [courseTotals, setCourseTotals] = useState<{ peerId: PeerId; strokes: number }[] | null>(null);
 
   const ball = useRef<BallState | null>(null);
   const rest = useRef<Map<PeerId, Vec3>>(new Map());
@@ -53,16 +55,28 @@ export function useGameLoop(args: {
   const lockG0 = useRef<[number, number, number] | null>(null);
   const meterTopDeg = useRef(0);
 
-  // Everything below lives outside React state — the loop mutates refs and
-  // only discrete turn transitions call setTurn.
+  // Course state outside React: the sim loop and bus handlers read these.
+  const holeRef = useRef<HoleDef>(args.holes[0]);
+  const holeIdxRef = useRef(0);
+  const totals = useRef<Map<PeerId, number>>(new Map());
   const machine = useRef<ReturnType<typeof createTurnMachine> | null>(null);
   const strokeOrigin = useRef<Vec3 | null>(null);
   const lastRotT = useRef<Map<PeerId, number>>(new Map());
+  const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendGame = useRef(args.sendGame);
   sendGame.current = args.sendGame;
+  const holes = useRef(args.holes);
+  holes.current = args.holes;
 
   function bearingToCup(from: Vec3): number {
+    const hole = holeRef.current;
     return (Math.atan2(hole.cup.x - from.x, hole.cup.z - from.z) * 180) / Math.PI;
+  }
+
+  function broadcast(msg: GameMessage) {
+    for (const p of machine.current?.state().order ?? []) {
+      if (p !== "DEBUG") sendGame.current(p, msg);
+    }
   }
 
   function publishTurn() {
@@ -70,6 +84,9 @@ export function useGameLoop(args: {
     phase.current = s.phase;
     activePeer.current = s.current;
     setTurn(s);
+    aimLocked.current = false;
+    lockG0.current = null;
+    meter.current = -1;
     for (const p of s.order) {
       if (p === "DEBUG") continue;
       sendGame.current(p, {
@@ -78,14 +95,40 @@ export function useGameLoop(args: {
         strokeIndex: s.scores.find((x) => x.peerId === p)?.strokes ?? 0,
       });
     }
-    aimLocked.current = false;
-    meter.current = -1;
     if (s.phase === "finished") {
-      for (const p of s.order) if (p !== "DEBUG") sendGame.current(p, { kind: "hole-finished", scores: s.scores });
+      finishHole(s);
     } else if (s.current) {
-      const pos = rest.current.get(s.current) ?? hole.tee;
+      const pos = rest.current.get(s.current) ?? holeRef.current.tee;
       aimYawDeg.current = bearingToCup(pos);
     }
+  }
+
+  function finishHole(s: TurnState) {
+    for (const sc of s.scores) {
+      totals.current.set(sc.peerId, (totals.current.get(sc.peerId) ?? 0) + sc.strokes);
+    }
+    broadcast({ kind: "hole-finished", scores: s.scores });
+
+    const isLast = holeIdxRef.current >= holes.current.length - 1;
+    if (isLast) {
+      const finalTotals = [...totals.current.entries()].map(([peerId, strokes]) => ({ peerId, strokes }));
+      setCourseTotals(finalTotals);
+      broadcast({ kind: "course-finished", totals: finalTotals });
+      return;
+    }
+    advanceTimer.current = setTimeout(() => startHole(holeIdxRef.current + 1, s.order), NEXT_HOLE_DELAY_MS);
+  }
+
+  function startHole(index: number, players: PeerId[]) {
+    holeIdxRef.current = index;
+    holeRef.current = holes.current[index];
+    setHoleIndex(index);
+    ball.current = null;
+    setLastStroke(null);
+    rest.current = new Map(players.map((p) => [p, { ...holeRef.current.tee }]));
+    machine.current = createTurnMachine(players);
+    broadcast({ kind: "hole-start", index, total: holes.current.length, par: holeRef.current.par });
+    publishTurn();
   }
 
   function takeStroke(peerId: PeerId, power: number, faceDeg: number, backspin = 0) {
@@ -93,6 +136,7 @@ export function useGameLoop(args: {
     if (!m) return;
     const s = m.state();
     if (s.phase !== "aiming" || s.current !== peerId) return;
+    const hole = holeRef.current;
     const from = rest.current.get(peerId) ?? hole.tee;
     strokeOrigin.current = { ...from };
     const input: StrokeInput = { power, aimDeg: aimYawDeg.current, faceDeg, backspin };
@@ -105,6 +149,7 @@ export function useGameLoop(args: {
 
   function settle(b: BallState) {
     const m = machine.current!;
+    const hole = holeRef.current;
     const player = m.state().current!;
     let outcome: "stopped" | "holed" | "oob";
     if (b.phase === "holed") {
@@ -135,7 +180,7 @@ export function useGameLoop(args: {
       if (document.visibilityState === "hidden") acc = 0; // pause, don't explode
       let steps = 0;
       while (ball.current && acc >= DT && steps < MAX_STEPS_PER_FRAME) {
-        ball.current = step(hole, ball.current, DT);
+        ball.current = step(holeRef.current, ball.current, DT);
         acc -= DT;
         steps += 1;
         const b = ball.current;
@@ -152,11 +197,12 @@ export function useGameLoop(args: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Start the machine once with the lobby's players.
+  // Kick off hole 1 with the lobby's players.
   useEffect(() => {
-    machine.current = createTurnMachine(args.initialPeers);
-    for (const p of args.initialPeers) rest.current.set(p, { ...hole.tee });
-    publishTurn();
+    startHole(0, args.initialPeers);
+    return () => {
+      if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -212,12 +258,19 @@ export function useGameLoop(args: {
         if (prev == null) return;
         const dt = Math.min(0.1, Math.max(0, (t - prev) / 1000));
         const next = aimYawDeg.current + AIM_TUNING.SIGN * rotAlpha * dt;
-        const center = activePeer.current ? bearingToCup(rest.current.get(activePeer.current) ?? hole.tee) : 0;
+        const center = activePeer.current ? bearingToCup(rest.current.get(activePeer.current) ?? holeRef.current.tee) : 0;
         aimYawDeg.current = Math.max(center - AIM_TUNING.MAX_DEG, Math.min(center + AIM_TUNING.MAX_DEG, next));
       },
       addPlayer(peerId) {
         machine.current?.addPlayer(peerId);
-        if (!rest.current.has(peerId)) rest.current.set(peerId, { ...hole.tee });
+        if (!rest.current.has(peerId)) rest.current.set(peerId, { ...holeRef.current.tee });
+        // Late joiner needs the course context the others already have.
+        sendGame.current(peerId, {
+          kind: "hole-start",
+          index: holeIdxRef.current,
+          total: holes.current.length,
+          par: holeRef.current.par,
+        });
         publishTurn();
       },
       removePlayer(peerId) {
@@ -237,12 +290,15 @@ export function useGameLoop(args: {
     turn,
     refs,
     lastStroke,
+    holeIndex,
+    courseTotals,
+    hole: args.holes[holeIndex],
     /** Checkpoint-E instrument: absolute aim from the slider, then swing. */
     fireDebugStroke: (i: StrokeInput) => {
       const current = machine.current?.state().current;
       if (!current) return;
       aimYawDeg.current = i.aimDeg;
-      takeStroke(current, i.power, i.faceDeg);
+      takeStroke(current, i.power, i.faceDeg, i.backspin ?? 0);
     },
   };
 }

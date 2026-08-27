@@ -43,7 +43,9 @@ export type GameMessage =
   // host → controller
   | { kind: "turn"; yourTurn: boolean; strokeIndex: number }
   | { kind: "stroke-result"; outcome: "stopped" | "holed" | "oob"; distToCup: number }
-  | { kind: "hole-finished"; scores: { peerId: PeerId; strokes: number; holed: boolean }[] };
+  | { kind: "hole-start"; index: number; total: number; par: number }
+  | { kind: "hole-finished"; scores: { peerId: PeerId; strokes: number; holed: boolean }[] }
+  | { kind: "course-finished"; totals: { peerId: PeerId; strokes: number }[] };
 
 /** client → server */
 export type ClientMessage =
@@ -103,8 +105,12 @@ export function isGameMessage(v: unknown): v is GameMessage {
       return typeof v.yourTurn === "boolean" && typeof v.strokeIndex === "number";
     case "stroke-result":
       return (v.outcome === "stopped" || v.outcome === "holed" || v.outcome === "oob") && typeof v.distToCup === "number";
+    case "hole-start":
+      return typeof v.index === "number" && typeof v.total === "number" && typeof v.par === "number";
     case "hole-finished":
       return Array.isArray(v.scores);
+    case "course-finished":
+      return Array.isArray(v.totals);
     default:
       return false;
   }

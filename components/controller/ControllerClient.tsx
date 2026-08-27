@@ -25,7 +25,9 @@ export function ControllerClient({ roomId }: { roomId: string }) {
   const [swingPhase, setSwingPhase] = useState<SwingPhase>("aim");
   const [swung, setSwung] = useState(false);
   const [result, setResult] = useState<PadState["result"]>(null);
+  const [hole, setHole] = useState<PadState["hole"]>(null);
   const [finished, setFinished] = useState<PadState["finished"]>(null);
+  const [courseTotals, setCourseTotals] = useState<PadState["courseTotals"]>(null);
   const detectorArmed = useRef(false);
   const meterRef = useRef(0);
 
@@ -99,8 +101,21 @@ export function ControllerClient({ roomId }: { roomId: string }) {
           setTimeout(() => playRumble({ hz: 60, ms: 150 }), 250); // double pulse
         }
         break;
+      case "hole-start":
+        setHole(msg);
+        setFinished(null);
+        setResult(null);
+        setSwung(false);
+        setSwingPhase("aim");
+        break;
       case "hole-finished":
         setFinished(msg);
+        setTurn(null);
+        detectorArmed.current = false;
+        break;
+      case "course-finished":
+        setCourseTotals(msg);
+        setFinished(null);
         setTurn(null);
         detectorArmed.current = false;
         break;
@@ -212,7 +227,7 @@ export function ControllerClient({ roomId }: { roomId: string }) {
       <div className="font-mono text-2xl tracking-[0.3em] text-emerald-400">{roomId}</div>
       <ConnectionBadge phase={phase} hidden={hidden} />
       <GamePad
-        state={{ turn, swingPhase, swung, result, finished, myPeerId: myPeerIdRef.current }}
+        state={{ turn, swingPhase, swung, result, hole, finished, courseTotals, myPeerId: myPeerIdRef.current }}
         meterRef={meterRef}
         onLockAim={lockAim}
         onReAim={reAim}

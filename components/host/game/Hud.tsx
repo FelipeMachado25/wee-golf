@@ -13,20 +13,31 @@ export function Hud({
   playerIndex,
   labels,
   refs,
+  holeIndex,
+  holeCount,
+  par,
+  courseTotals,
 }: {
   turn: TurnState;
   lastStroke: StrokeInput | null;
   playerIndex: Map<PeerId, number>;
   labels: Map<PeerId, string>;
   refs: GameRefs;
+  holeIndex: number;
+  holeCount: number;
+  par: number;
+  courseTotals: { peerId: PeerId; strokes: number }[] | null;
 }) {
   const name = (id: PeerId) => labels.get(id) ?? id.slice(0, 6);
   const color = (id: PeerId) => PLAYER_COLORS[(playerIndex.get(id) ?? 0) % PLAYER_COLORS.length];
 
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 font-mono">
-      {/* top bar: whose turn + live Wii backswing meter */}
+      {/* top bar: hole indicator + whose turn + live Wii backswing meter */}
       <div className="flex flex-col items-center gap-2">
+        <div className="rounded-full bg-black/50 px-4 py-1 text-xs font-bold tracking-wider text-neutral-300 backdrop-blur">
+          HOLE {holeIndex + 1}/{holeCount} · PAR {par}
+        </div>
         {turn.phase !== "finished" && turn.current && (
           <div className="rounded-full bg-black/50 px-5 py-2 text-sm text-white backdrop-blur">
             <span style={{ color: color(turn.current) }}>●</span>{" "}
@@ -65,22 +76,24 @@ export function Hud({
         )}
       </div>
 
-      {/* scorecard on finish */}
+      {/* between holes / end of course */}
       {turn.phase === "finished" && turn.scores.length > 0 && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="rounded-2xl bg-black/70 p-8 text-center backdrop-blur">
-            <h2 className="mb-4 text-2xl font-bold text-white">⛳ Hole complete</h2>
-            {[...turn.scores]
-              .sort((a, b) => a.strokes - b.strokes)
-              .map((s, i) => (
-                <div key={s.peerId} className="flex items-center gap-3 py-1 text-lg text-neutral-200">
-                  <span className="w-6 text-neutral-500">{i + 1}.</span>
-                  <span style={{ color: color(s.peerId) }}>●</span>
-                  <span className="w-24 text-left">{name(s.peerId)}</span>
-                  <span className="tabular-nums">{s.strokes}</span>
-                </div>
-              ))}
-            <p className="mt-4 text-xs text-neutral-500">Reload the page for a new round (multi-hole flow arrives in Phase 2B)</p>
+            <h2 className="mb-4 text-2xl font-bold text-white">
+              {courseTotals ? "🏆 Course complete" : `⛳ Hole ${holeIndex + 1} complete`}
+            </h2>
+            {([...(courseTotals ?? turn.scores)].sort((a, b) => a.strokes - b.strokes)).map((s, i) => (
+              <div key={s.peerId} className="flex items-center gap-3 py-1 text-lg text-neutral-200">
+                <span className="w-6 text-neutral-500">{i + 1}.</span>
+                <span style={{ color: color(s.peerId) }}>●</span>
+                <span className="w-24 text-left">{name(s.peerId)}</span>
+                <span className="tabular-nums">{s.strokes}</span>
+              </div>
+            ))}
+            <p className="mt-4 text-xs text-neutral-500">
+              {courseTotals ? "Reload the page for a new round" : "Next hole coming up…"}
+            </p>
           </div>
         </div>
       )}
