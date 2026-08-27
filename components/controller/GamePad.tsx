@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import type { GameMessage } from "@/lib/networking/partykit/protocol";
 
 export type SwingPhase = "aim" | "address" | "backswing";
@@ -14,17 +14,20 @@ export type PadState = {
   myPeerId: string;
 };
 
-/** The phone-as-club surface, Wii Golf style: rotate to aim → hold the phone
- *  hanging club-down to lock → raise to charge the meter → swing through.
- *  Pure presentation — detection lives in ControllerClient, physics on host. */
+/** The phone-as-club surface, Wii Golf style with a button lock: rotate to
+ *  aim → tap Lock (freezes the arrow, captures your grip as the reference) →
+ *  raise to charge → swing through to hit. Pure presentation — detection
+ *  lives in ControllerClient, physics on the host. */
 export function GamePad({
   state,
   meterRef,
-  gyRef,
+  onLockAim,
+  onReAim,
 }: {
   state: PadState;
   meterRef: RefObject<number>;
-  gyRef: RefObject<number>;
+  onLockAim: () => void;
+  onReAim: () => void;
 }) {
   const { turn, swingPhase, swung, result, finished } = state;
 
@@ -68,37 +71,32 @@ export function GamePad({
     return (
       <Panel tone="emerald">
         <p className="mb-1 text-lg font-bold">Your turn — aim</p>
-        <p className="mb-2 text-center text-sm text-neutral-300">
+        <p className="mb-4 text-center text-sm text-neutral-300">
           Rotate the phone left/right — watch the arrow on the big screen.
         </p>
-        <p className="text-center text-sm text-emerald-300">
-          When ready, hold the phone <b>hanging straight down</b> like a golf club to lock.
-        </p>
-        <GyDebug gyRef={gyRef} />
+        <button
+          onClick={onLockAim}
+          className="h-20 w-full rounded-2xl bg-emerald-500 text-xl font-bold text-neutral-950 shadow-lg shadow-emerald-500/30 active:scale-95"
+        >
+          Lock aim 🎯
+        </button>
       </Panel>
     );
   }
 
-  if (swingPhase === "address") {
-    return (
-      <Panel tone="violet">
-        <p className="text-lg font-bold">🎯 Locked — address</p>
-        <p className="mt-2 text-center text-sm text-neutral-300">Raise the club back to charge your shot.</p>
-        <GyDebug gyRef={gyRef} />
-      </Panel>
-    );
-  }
-
-  // backswing: live meter
+  // address / backswing: locked, meter live
   return (
     <Panel tone="violet">
-      <p className="text-lg font-bold">⬆ Charging…</p>
+      <p className="text-lg font-bold">{swingPhase === "address" ? "🎯 Locked — raise the club" : "⬆ Charging…"}</p>
       <MeterBar meterRef={meterRef} />
       <p className="mt-2 text-center text-xs text-neutral-400">
-        Swing down through the ball to hit.
+        Raise back to charge, swing down through the ball to hit.
         <br />
         <b>Stop dead</b> right after impact for backspin.
       </p>
+      <button onClick={onReAim} className="mt-3 rounded-lg bg-neutral-800 px-4 py-2 text-xs text-neutral-300 active:scale-95">
+        ↩ Re-aim
+      </button>
     </Panel>
   );
 }
@@ -128,17 +126,6 @@ function MeterBar({ meterRef }: { meterRef: RefObject<number> }) {
       </div>
     </div>
   );
-}
-
-/** Tuning aid: live gravity-y readout so a wrong ADDRESS_Y_SIGN takes one
- *  message to diagnose ("what number do you see holding it like a club?"). */
-function GyDebug({ gyRef }: { gyRef: RefObject<number> }) {
-  const [gy, setGy] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setGy(gyRef.current ?? 0), 250);
-    return () => clearInterval(id);
-  }, [gyRef]);
-  return <p className="mt-2 font-mono text-[10px] text-neutral-600">gy {gy.toFixed(1)}</p>;
 }
 
 function ResultLine({ result }: { result: Extract<GameMessage, { kind: "stroke-result" }> }) {

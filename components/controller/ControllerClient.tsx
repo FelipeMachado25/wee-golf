@@ -28,22 +28,20 @@ export function ControllerClient({ roomId }: { roomId: string }) {
   const [finished, setFinished] = useState<PadState["finished"]>(null);
   const detectorArmed = useRef(false);
   const meterRef = useRef(0);
-  const gyRef = useRef(0);
 
   const sendGameToHost = useCallback((msg: GameMessage) => {
     if (peerRef.current?.sendGame(msg)) return;
     connRef.current?.send({ type: "game", to: "host", payload: msg });
   }, []);
 
-  // Wii swing machine: address (club-down hold) → backswing meter → strike,
-  // dead stop after impact = backspin. Events drive the pad UI.
+  // Wii swing machine, button-armed: Lock tap captures the reference pose →
+  // raise = live meter → swing back through = strike; dead stop = backspin.
   const detector = useRef(
     createWiiSwing((e) => {
       switch (e.type) {
         case "address":
           setSwingPhase("address");
           meterRef.current = 0;
-          sendGameToHost({ kind: "aim-lock", aimDeg: 0 });
           playRumble({ hz: 60, ms: 80 }); // tactile "locked" tick
           break;
         case "meter":
@@ -51,9 +49,9 @@ export function ControllerClient({ roomId }: { roomId: string }) {
           setSwingPhase((p) => (p === "backswing" ? p : "backswing"));
           break;
         case "cancel":
-          setSwingPhase("aim");
+          // gentle lower: still locked, charge resets — no unlock
+          setSwingPhase("address");
           meterRef.current = 0;
-          sendGameToHost({ kind: "aim-unlock" });
           break;
         case "swing":
           detectorArmed.current = false;
@@ -64,6 +62,21 @@ export function ControllerClient({ roomId }: { roomId: string }) {
       }
     }),
   );
+
+  /** The Lock button: freezes the host arrow and arms the swing machine with
+   *  the phone's CURRENT orientation as the club-at-the-ball reference. */
+  const lockAim = useCallback(() => {
+    detector.current.arm();
+    sendGameToHost({ kind: "aim-lock", aimDeg: 0 });
+  }, [sendGameToHost]);
+
+  /** Back out of the lock to re-aim. */
+  const reAim = useCallback(() => {
+    detector.current.reset();
+    setSwingPhase("aim");
+    meterRef.current = 0;
+    sendGameToHost({ kind: "aim-unlock" });
+  }, [sendGameToHost]);
 
   const handleGame = useCallback((msg: GameMessage) => {
     switch (msg.kind) {
@@ -97,7 +110,6 @@ export function ControllerClient({ roomId }: { roomId: string }) {
   handleGameRef.current = handleGame;
 
   const onMotion = useCallback((s: Omit<TelemetrySample, "seq">) => {
-    if (s.accG) gyRef.current = s.accG[1];
     if (detectorArmed.current) detector.current.feed({ t: s.t, accG: s.accG, rot: s.rot });
   }, []);
 
@@ -202,7 +214,8 @@ export function ControllerClient({ roomId }: { roomId: string }) {
       <GamePad
         state={{ turn, swingPhase, swung, result, finished, myPeerId: myPeerIdRef.current }}
         meterRef={meterRef}
-        gyRef={gyRef}
+        onLockAim={lockAim}
+        onReAim={reAim}
       />
       <PermissionGate sendSample={sendSample} onMotion={onMotion} />
     </main>

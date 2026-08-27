@@ -5,7 +5,7 @@ import type { GameMessage, PeerId } from "@/lib/networking/partykit/protocol";
 import { HOLE_ONE, type HoleDef } from "@/lib/game/terrain";
 import { launch, step, type BallState, type StrokeInput } from "@/lib/game/physics";
 import { createTurnMachine, type TurnState } from "@/lib/game/turns";
-import { SWING_TUNING } from "@/lib/game/swing";
+import { relAngle, SWING_TUNING } from "@/lib/game/swing";
 import type { Vec3 } from "@/lib/game/vec";
 
 const DT = 1 / 120;
@@ -49,6 +49,9 @@ export function useGameLoop(args: {
   const phase = useRef<TurnState["phase"]>("finished");
   const meter = useRef(-1);
   const aimLocked = useRef(false);
+  const lastAccG = useRef<Map<PeerId, [number, number, number]>>(new Map());
+  const lockG0 = useRef<[number, number, number] | null>(null);
+  const meterTopDeg = useRef(0);
 
   // Everything below lives outside React state — the loop mutates refs and
   // only discrete turn transitions call setTurn.
@@ -164,14 +167,18 @@ export function useGameLoop(args: {
         if (msg.kind === "swing") {
           takeStroke(from, msg.power, msg.faceDeg, msg.backspin);
         } else if (msg.kind === "aim-lock") {
-          // Wii flow: dropping into the address pose freezes the arrow.
+          // Wii flow: the Lock tap freezes the arrow and sets the meter
+          // reference to the phone's orientation at that instant.
           if (activePeer.current === from) {
             aimLocked.current = true;
+            lockG0.current = lastAccG.current.get(from) ?? null;
+            meterTopDeg.current = 0;
             meter.current = 0;
           }
         } else if (msg.kind === "aim-unlock") {
           if (activePeer.current === from) {
             aimLocked.current = false;
+            lockG0.current = null;
             meter.current = -1;
           }
         }
@@ -183,17 +190,20 @@ export function useGameLoop(args: {
         }
         const prev = lastRotT.current.get(from);
         lastRotT.current.set(from, t);
+        if (accG) lastAccG.current.set(from, accG);
         if (aimLocked.current) {
-          // Address/backswing: mirror the Wii meter on the big screen from the
-          // same tilt-angle math the phone uses.
-          if (accG) {
-            const g = Math.hypot(accG[0], accG[1], accG[2]);
-            if (g > SWING_TUNING.MIN_G) {
-              const c = Math.max(-1, Math.min(1, (SWING_TUNING.ADDRESS_Y_SIGN * accG[1]) / g));
-              const theta = (Math.acos(c) * 180) / Math.PI;
+          // Mirror the Wii meter on the big screen: same relative-angle math
+          // the phone runs, referenced to the orientation at the Lock tap.
+          if (accG && lockG0.current) {
+            const theta = relAngle(lockG0.current, accG);
+            if (theta != null) {
+              meterTopDeg.current = Math.max(meterTopDeg.current, theta);
               meter.current = Math.max(
                 0,
-                Math.min(1, (theta - SWING_TUNING.BACKSWING_START_DEG) / (SWING_TUNING.BACKSWING_MAX_DEG - SWING_TUNING.BACKSWING_START_DEG)),
+                Math.min(
+                  1,
+                  (meterTopDeg.current - SWING_TUNING.BACKSWING_START_DEG) / (SWING_TUNING.BACKSWING_MAX_DEG - SWING_TUNING.BACKSWING_START_DEG),
+                ),
               );
             }
           }
