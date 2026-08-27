@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { HOLE_ONE } from "./terrain";
 import { PHYS, launch, step, type BallState, type StrokeInput } from "./physics";
+import { CLUBS } from "./clubs";
 import { len } from "./vec";
 
 const DT = 1 / 120;
@@ -17,9 +18,9 @@ function playStroke(input: StrokeInput, maxSeconds = 60) {
 }
 
 describe("launch", () => {
-  it("full power leaves at V_MAX with upward loft", () => {
+  it("full power leaves at the club's vMax with upward loft", () => {
     const b = launch(HOLE_ONE.tee, { power: 1, aimDeg: 0, faceDeg: 0 });
-    expect(len(b.vel)).toBeCloseTo(PHYS.V_MAX, 5);
+    expect(len(b.vel)).toBeCloseTo(CLUBS.driver.vMax, 5);
     expect(b.vel.y).toBeGreaterThan(0);
     expect(b.phase).toBe("flying");
   });
@@ -122,7 +123,9 @@ describe("step", () => {
       }
       return top;
     };
-    expect(apex(1)).toBeGreaterThan(apex(0) + 0.25);
+    // Driver loft is a realistic 14°: flatter flight → smaller magnus window,
+    // so the lift delta is modest but must stay clearly positive.
+    expect(apex(1)).toBeGreaterThan(apex(0) + 0.15);
   });
 
   it("the ball never rests below the terrain", () => {

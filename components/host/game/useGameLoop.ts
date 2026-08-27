@@ -6,6 +6,7 @@ import type { HoleDef } from "@/lib/game/terrain";
 import { launch, step, type BallState, type StrokeInput } from "@/lib/game/physics";
 import { createTurnMachine, type TurnState } from "@/lib/game/turns";
 import { relAngle, SWING_TUNING } from "@/lib/game/swing";
+import { suggestClub, type ClubId } from "@/lib/game/clubs";
 import type { Vec3 } from "@/lib/game/vec";
 
 const DT = 1 / 120;
@@ -23,6 +24,8 @@ export type GameRefs = {
   phase: RefObject<TurnState["phase"]>;
   /** Live Wii backswing meter of the active player, 0..1, -1 when not locked. */
   meter: RefObject<number>;
+  /** Club the active player will hit with — drives the minimap range arc. */
+  club: RefObject<ClubId>;
 };
 
 /** What HostClient pushes into the running game. */
@@ -50,6 +53,7 @@ export function useGameLoop(args: {
   const activePeer = useRef<PeerId | null>(null);
   const phase = useRef<TurnState["phase"]>("finished");
   const meter = useRef(-1);
+  const club = useRef<ClubId>("driver");
   const aimLocked = useRef(false);
   const lastAccG = useRef<Map<PeerId, [number, number, number]>>(new Map());
   const lockG0 = useRef<[number, number, number] | null>(null);
@@ -79,6 +83,12 @@ export function useGameLoop(args: {
     }
   }
 
+  function distToCupOf(peerId: PeerId): number {
+    const hole = holeRef.current;
+    const pos = rest.current.get(peerId) ?? hole.tee;
+    return Math.hypot(pos.x - hole.cup.x, pos.z - hole.cup.z);
+  }
+
   function publishTurn() {
     const s = machine.current!.state();
     phase.current = s.phase;
@@ -87,12 +97,20 @@ export function useGameLoop(args: {
     aimLocked.current = false;
     lockG0.current = null;
     meter.current = -1;
+    // Re-suggest the club for the new active player; their explicit pick
+    // (a "club" message) overrides it until their stroke resolves.
+    if (s.current) {
+      const pos = rest.current.get(s.current) ?? holeRef.current.tee;
+      club.current = suggestClub(distToCupOf(s.current), holeRef.current.surfaceAt(pos.x, pos.z));
+    }
     for (const p of s.order) {
       if (p === "DEBUG") continue;
       sendGame.current(p, {
         kind: "turn",
         yourTurn: p === s.current && s.phase === "aiming",
         strokeIndex: s.scores.find((x) => x.peerId === p)?.strokes ?? 0,
+        club: club.current,
+        distToCup: distToCupOf(p),
       });
     }
     if (s.phase === "finished") {
@@ -139,7 +157,7 @@ export function useGameLoop(args: {
     const hole = holeRef.current;
     const from = rest.current.get(peerId) ?? hole.tee;
     strokeOrigin.current = { ...from };
-    const input: StrokeInput = { power, aimDeg: aimYawDeg.current, faceDeg, backspin };
+    const input: StrokeInput = { power, aimDeg: aimYawDeg.current, faceDeg, backspin, club: club.current };
     ball.current = launch({ ...from, y: hole.height(from.x, from.z) }, input);
     setLastStroke(input);
     m.strokeTaken(peerId);
@@ -221,6 +239,8 @@ export function useGameLoop(args: {
             meterTopDeg.current = 0;
             meter.current = 0;
           }
+        } else if (msg.kind === "club") {
+          if (activePeer.current === from) club.current = msg.club;
         } else if (msg.kind === "aim-unlock") {
           if (activePeer.current === from) {
             aimLocked.current = false;
@@ -285,7 +305,7 @@ export function useGameLoop(args: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const refs: GameRefs = { ball, rest, aimYawDeg, activePeer, phase, meter };
+  const refs: GameRefs = { ball, rest, aimYawDeg, activePeer, phase, meter, club };
   return {
     turn,
     refs,

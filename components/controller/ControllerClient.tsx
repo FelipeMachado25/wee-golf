@@ -6,6 +6,7 @@ import { connectRoom, type RoomConnection } from "@/lib/networking/partykit/clie
 import { createControllerPeer, type ControllerPeer } from "@/lib/networking/webrtc/peer-controller";
 import { P2P_FALLBACK_TIMEOUT_MS } from "@/lib/networking/webrtc/config";
 import { createWiiSwing } from "@/lib/game/swing";
+import type { ClubId } from "@/lib/game/clubs";
 import { playRumble } from "@/lib/audio/rumble";
 import { ConnectionBadge, type ConnectionPhase } from "./ConnectionBadge";
 import { PermissionGate } from "./PermissionGate";
@@ -22,6 +23,7 @@ export function ControllerClient({ roomId }: { roomId: string }) {
 
   // --- game pad state --------------------------------------------------------
   const [turn, setTurn] = useState<PadState["turn"]>(null);
+  const [club, setClub] = useState<ClubId>("driver");
   const [swingPhase, setSwingPhase] = useState<SwingPhase>("aim");
   const [swung, setSwung] = useState(false);
   const [result, setResult] = useState<PadState["result"]>(null);
@@ -80,10 +82,19 @@ export function ControllerClient({ roomId }: { roomId: string }) {
     sendGameToHost({ kind: "aim-unlock" });
   }, [sendGameToHost]);
 
+  const pickClub = useCallback(
+    (c: ClubId) => {
+      setClub(c);
+      sendGameToHost({ kind: "club", club: c });
+    },
+    [sendGameToHost],
+  );
+
   const handleGame = useCallback((msg: GameMessage) => {
     switch (msg.kind) {
       case "turn":
-        setTurn({ yourTurn: msg.yourTurn, strokeIndex: msg.strokeIndex });
+        setTurn({ yourTurn: msg.yourTurn, strokeIndex: msg.strokeIndex, club: msg.club, distToCup: msg.distToCup });
+        setClub(msg.club); // host's suggestion; player buttons override
         setSwingPhase("aim");
         setSwung(false);
         meterRef.current = 0;
@@ -227,10 +238,11 @@ export function ControllerClient({ roomId }: { roomId: string }) {
       <div className="font-mono text-2xl tracking-[0.3em] text-emerald-400">{roomId}</div>
       <ConnectionBadge phase={phase} hidden={hidden} />
       <GamePad
-        state={{ turn, swingPhase, swung, result, hole, finished, courseTotals, myPeerId: myPeerIdRef.current }}
+        state={{ turn, club, swingPhase, swung, result, hole, finished, courseTotals, myPeerId: myPeerIdRef.current }}
         meterRef={meterRef}
         onLockAim={lockAim}
         onReAim={reAim}
+        onClub={pickClub}
       />
       <PermissionGate sendSample={sendSample} onMotion={onMotion} />
     </main>

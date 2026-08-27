@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, type RefObject } from "react";
 import type { GameMessage } from "@/lib/networking/partykit/protocol";
+import { CLUB_ORDER, CLUBS, estimateMaxDistance, type ClubId } from "@/lib/game/clubs";
 
 export type SwingPhase = "aim" | "address" | "backswing";
 
 export type PadState = {
-  turn: { yourTurn: boolean; strokeIndex: number } | null;
+  turn: { yourTurn: boolean; strokeIndex: number; club: ClubId; distToCup: number } | null;
+  club: ClubId;
   swingPhase: SwingPhase;
   swung: boolean;
   result: Extract<GameMessage, { kind: "stroke-result" }> | null;
@@ -25,13 +27,15 @@ export function GamePad({
   meterRef,
   onLockAim,
   onReAim,
+  onClub,
 }: {
   state: PadState;
   meterRef: RefObject<number>;
   onLockAim: () => void;
   onReAim: () => void;
+  onClub: (club: ClubId) => void;
 }) {
-  const { turn, swingPhase, swung, result, hole, finished, courseTotals } = state;
+  const { turn, swingPhase, swung, result, hole, finished, courseTotals, club } = state;
   const holeChip = hole ? `Hole ${hole.index + 1}/${hole.total} · Par ${hole.par}` : null;
 
   if (courseTotals) {
@@ -94,12 +98,25 @@ export function GamePad({
       <Panel tone="emerald">
         {holeChip && <p className="mb-1 font-mono text-[10px] tracking-wider text-neutral-500">{holeChip}</p>}
         <p className="mb-1 text-lg font-bold">Your turn — aim</p>
-        <p className="mb-4 text-center text-sm text-neutral-300">
-          Rotate the phone left/right — watch the arrow on the big screen.
-        </p>
+        <p className="font-mono text-sm text-amber-300">{turn.distToCup.toFixed(0)}m to the hole</p>
+        <div className="my-3 grid w-full grid-cols-2 gap-2">
+          {CLUB_ORDER.map((id) => (
+            <button
+              key={id}
+              onClick={() => onClub(id)}
+              className={`rounded-xl px-3 py-2 text-left font-mono text-xs ${
+                club === id ? "bg-emerald-500 text-neutral-950" : "bg-neutral-800 text-neutral-300"
+              }`}
+            >
+              <span className="font-bold">{CLUBS[id].label}</span>
+              <span className={club === id ? "block text-neutral-800" : "block text-neutral-500"}>~{estimateMaxDistance(id)}m</span>
+            </button>
+          ))}
+        </div>
+        <p className="mb-3 text-center text-xs text-neutral-400">Rotate the phone to steer the arrow on the big screen.</p>
         <button
           onClick={onLockAim}
-          className="h-20 w-full rounded-2xl bg-emerald-500 text-xl font-bold text-neutral-950 shadow-lg shadow-emerald-500/30 active:scale-95"
+          className="h-16 w-full rounded-2xl bg-emerald-500 text-xl font-bold text-neutral-950 shadow-lg shadow-emerald-500/30 active:scale-95"
         >
           Lock aim 🎯
         </button>
@@ -110,6 +127,9 @@ export function GamePad({
   // address / backswing: locked, meter live
   return (
     <Panel tone="violet">
+      <p className="mb-1 font-mono text-[10px] tracking-wider text-neutral-500">
+        {CLUBS[club].label} · ~{estimateMaxDistance(club)}m
+      </p>
       <p className="text-lg font-bold">{swingPhase === "address" ? "🎯 Locked — raise the club" : "⬆ Charging…"}</p>
       <MeterBar meterRef={meterRef} />
       <p className="mt-2 text-center text-xs text-neutral-400">

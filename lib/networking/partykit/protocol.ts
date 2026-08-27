@@ -35,13 +35,18 @@ export type TelemetrySample = {
 /** Discrete game events. They ride the reliable "events" RTCDataChannel when
  *  it is open, else the WebSocket relay ({type:"game"}). Never the unreliable
  *  telemetry channel — a lost swing is a lost stroke. */
+/** Redeclared structurally (like IceCandidateInit) so the Worker bundle never
+ *  drags in the game's physics modules. */
+export type ClubIdWire = "driver" | "iron" | "wedge" | "putter";
+
 export type GameMessage =
   // controller → host
   | { kind: "aim-lock"; aimDeg: number }
   | { kind: "aim-unlock" } // left the address pose without striking
+  | { kind: "club"; club: ClubIdWire }
   | { kind: "swing"; power: number; faceDeg: number; backspin: number }
   // host → controller
-  | { kind: "turn"; yourTurn: boolean; strokeIndex: number }
+  | { kind: "turn"; yourTurn: boolean; strokeIndex: number; club: ClubIdWire; distToCup: number }
   | { kind: "stroke-result"; outcome: "stopped" | "holed" | "oob"; distToCup: number }
   | { kind: "hole-start"; index: number; total: number; par: number }
   | { kind: "hole-finished"; scores: { peerId: PeerId; strokes: number; holed: boolean }[] }
@@ -99,10 +104,12 @@ export function isGameMessage(v: unknown): v is GameMessage {
       return typeof v.aimDeg === "number";
     case "aim-unlock":
       return true;
+    case "club":
+      return v.club === "driver" || v.club === "iron" || v.club === "wedge" || v.club === "putter";
     case "swing":
       return typeof v.power === "number" && typeof v.faceDeg === "number" && typeof v.backspin === "number";
     case "turn":
-      return typeof v.yourTurn === "boolean" && typeof v.strokeIndex === "number";
+      return typeof v.yourTurn === "boolean" && typeof v.strokeIndex === "number" && typeof v.club === "string" && typeof v.distToCup === "number";
     case "stroke-result":
       return (v.outcome === "stopped" || v.outcome === "holed" || v.outcome === "oob") && typeof v.distToCup === "number";
     case "hole-start":

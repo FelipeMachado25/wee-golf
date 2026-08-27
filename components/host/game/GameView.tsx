@@ -6,6 +6,7 @@ import { generateCourse } from "@/lib/game/course";
 import { useGameLoop, type GameBus } from "./useGameLoop";
 import { GameCanvas } from "./GameCanvas";
 import { Hud } from "./Hud";
+import { Minimap } from "./Minimap";
 import { TestStrokeBar } from "./TestStrokeBar";
 
 /** The playing-mode surface: 3D scene + HUD, owning the simulation loop.
@@ -39,6 +40,7 @@ export function GameView({
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-[#0b1020]">
       <GameCanvas hole={hole} refs={refs} playerIndex={playerIndex} />
+      <Minimap hole={hole} refs={refs} playerIndex={playerIndex} />
       <Hud
         turn={turn}
         lastStroke={lastStroke}

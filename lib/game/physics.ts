@@ -1,5 +1,6 @@
 import { add, cross, dot, len, norm, scale, sub, vec, type Vec3 } from "./vec";
 import { surfaceNormal, type HoleDef, type Surface } from "./terrain";
+import { CLUBS, type ClubId } from "./clubs";
 
 export type BallPhase = "flying" | "rolling" | "stopped" | "holed";
 
@@ -15,14 +16,13 @@ export interface StrokeInput {
   aimDeg: number; // 0 = +z (toward the hole), positive = right
   faceDeg: number; // clubface offset → sidespin/curve, clamped ±10 upstream
   backspin?: number; // 0..1 — dead-stop swing (Wii style): lift + bite on landing
+  club?: ClubId; // defaults to driver (the original tuning)
 }
 
 /** All tuning in one place — Checkpoint F edits THIS object, nothing else. */
 export const PHYS = {
   G: 9.81,
-  V_MAX: 32, // m/s at power 1
-  LOFT_DEG: 18,
-  KD: 0.02, // quadratic air drag coefficient
+  KD: 0.012, // quadratic air drag coefficient
   KM: 0.0004, // magnus coefficient
   SIDESPIN_MAX: 90, // rad/s at faceDeg 10
   BACKSPIN_RATE: 200, // rad/s at backspin 1
@@ -36,11 +36,24 @@ export const PHYS = {
 };
 
 export function launch(from: Vec3, input: StrokeInput): BallState {
-  const speed = Math.max(0, Math.min(1, input.power)) * PHYS.V_MAX;
-  const loft = (PHYS.LOFT_DEG * Math.PI) / 180;
+  const club = CLUBS[input.club ?? "driver"];
+  const speed = Math.max(0, Math.min(1, input.power)) * club.vMax;
   const aim = (input.aimDeg * Math.PI) / 180;
-  const horizontal = speed * Math.cos(loft);
   const dir = vec(Math.sin(aim), 0, Math.cos(aim));
+
+  if (club.rollsOnly) {
+    // Putter: pure ground stroke — no flight, no spin tricks. This is what
+    // makes the short game dosable.
+    return {
+      pos: { ...from },
+      vel: scale(dir, speed),
+      spin: vec(),
+      phase: "rolling",
+    };
+  }
+
+  const loft = (club.loftDeg * Math.PI) / 180;
+  const horizontal = speed * Math.cos(loft);
   // Sidespin: positive faceDeg curves right (+x) — ŷ×ẑ = x̂.
   // Backspin: ω = rate·(dir×ŷ) gives (dir×ŷ)×v ∝ +ŷ, i.e. magnus lift.
   const back = scale(cross(dir, vec(0, 1, 0)), (input.backspin ?? 0) * PHYS.BACKSPIN_RATE);
