@@ -1,35 +1,40 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import type { TurnState } from "@/lib/game/turns";
 import type { StrokeInput } from "@/lib/game/physics";
 import type { PeerId } from "@/lib/networking/partykit/protocol";
 import { PLAYER_COLORS } from "./GameCanvas";
+import type { GameRefs } from "./useGameLoop";
 
 export function Hud({
   turn,
   lastStroke,
   playerIndex,
   labels,
+  refs,
 }: {
   turn: TurnState;
   lastStroke: StrokeInput | null;
   playerIndex: Map<PeerId, number>;
   labels: Map<PeerId, string>;
+  refs: GameRefs;
 }) {
   const name = (id: PeerId) => labels.get(id) ?? id.slice(0, 6);
   const color = (id: PeerId) => PLAYER_COLORS[(playerIndex.get(id) ?? 0) % PLAYER_COLORS.length];
 
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 font-mono">
-      {/* top bar: whose turn */}
-      <div className="flex justify-center">
+      {/* top bar: whose turn + live Wii backswing meter */}
+      <div className="flex flex-col items-center gap-2">
         {turn.phase !== "finished" && turn.current && (
           <div className="rounded-full bg-black/50 px-5 py-2 text-sm text-white backdrop-blur">
             <span style={{ color: color(turn.current) }}>●</span>{" "}
             <span className="font-bold">{name(turn.current)}</span>
-            {turn.phase === "aiming" ? " — aiming (rotate phone, then swing)" : " — ball in motion"}
+            {turn.phase === "aiming" ? " — rotate to aim, hold the phone down like a club, raise & swing" : " — ball in motion"}
           </div>
         )}
+        {turn.phase === "aiming" && <LiveMeter refs={refs} />}
       </div>
 
       <div className="flex items-end justify-between">
@@ -79,6 +84,31 @@ export function Hud({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Wii-style backswing meter, mirrored from the phone's tilt at 60Hz via
+ *  refs + rAF — hidden until the player drops into the address pose. */
+function LiveMeter({ refs }: { refs: GameRefs }) {
+  const wrap = useRef<HTMLDivElement>(null);
+  const fill = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const m = refs.meter.current ?? -1;
+      if (wrap.current) wrap.current.style.opacity = m < 0 ? "0" : "1";
+      if (fill.current && m >= 0) fill.current.style.width = `${Math.round(m * 100)}%`;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [refs]);
+  return (
+    <div ref={wrap} className="w-72 rounded-full bg-black/50 p-1.5 backdrop-blur transition-opacity" style={{ opacity: 0 }}>
+      <div className="h-3 overflow-hidden rounded-full bg-neutral-800">
+        <div ref={fill} className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-amber-300 to-red-400" style={{ width: "0%" }} />
+      </div>
     </div>
   );
 }

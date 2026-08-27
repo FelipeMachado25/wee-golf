@@ -5,6 +5,7 @@ import type { GameMessage, PeerId } from "@/lib/networking/partykit/protocol";
 import { HOLE_ONE, type HoleDef } from "@/lib/game/terrain";
 import { launch, step, type BallState, type StrokeInput } from "@/lib/game/physics";
 import { createTurnMachine, type TurnState } from "@/lib/game/turns";
+import { SWING_TUNING } from "@/lib/game/swing";
 import type { Vec3 } from "@/lib/game/vec";
 
 const DT = 1 / 120;
@@ -19,12 +20,14 @@ export type GameRefs = {
   aimYawDeg: RefObject<number>;
   activePeer: RefObject<PeerId | null>;
   phase: RefObject<TurnState["phase"]>;
+  /** Live Wii backswing meter of the active player, 0..1, -1 when not in address. */
+  meter: RefObject<number>;
 };
 
 /** What HostClient pushes into the running game. */
 export type GameBus = {
   handleGameMessage(from: PeerId, msg: GameMessage): void;
-  feedRot(from: PeerId, t: number, rotAlphaDegPerSec: number): void;
+  feedMotion(from: PeerId, t: number, rotAlphaDegPerSec: number, accG: [number, number, number] | null): void;
   addPlayer(peerId: PeerId): void;
   removePlayer(peerId: PeerId): void;
 };
@@ -44,6 +47,8 @@ export function useGameLoop(args: {
   const aimYawDeg = useRef(0);
   const activePeer = useRef<PeerId | null>(null);
   const phase = useRef<TurnState["phase"]>("finished");
+  const meter = useRef(-1);
+  const aimLocked = useRef(false);
 
   // Everything below lives outside React state — the loop mutates refs and
   // only discrete turn transitions call setTurn.
@@ -70,6 +75,8 @@ export function useGameLoop(args: {
         strokeIndex: s.scores.find((x) => x.peerId === p)?.strokes ?? 0,
       });
     }
+    aimLocked.current = false;
+    meter.current = -1;
     if (s.phase === "finished") {
       for (const p of s.order) if (p !== "DEBUG") sendGame.current(p, { kind: "hole-finished", scores: s.scores });
     } else if (s.current) {
@@ -78,14 +85,14 @@ export function useGameLoop(args: {
     }
   }
 
-  function takeStroke(peerId: PeerId, power: number, faceDeg: number) {
+  function takeStroke(peerId: PeerId, power: number, faceDeg: number, backspin = 0) {
     const m = machine.current;
     if (!m) return;
     const s = m.state();
     if (s.phase !== "aiming" || s.current !== peerId) return;
     const from = rest.current.get(peerId) ?? hole.tee;
     strokeOrigin.current = { ...from };
-    const input: StrokeInput = { power, aimDeg: aimYawDeg.current, faceDeg };
+    const input: StrokeInput = { power, aimDeg: aimYawDeg.current, faceDeg, backspin };
     ball.current = launch({ ...from, y: hole.height(from.x, from.z) }, input);
     setLastStroke(input);
     m.strokeTaken(peerId);
@@ -154,17 +161,44 @@ export function useGameLoop(args: {
   useEffect(() => {
     args.busRef.current = {
       handleGameMessage(from, msg) {
-        if (msg.kind === "swing") takeStroke(from, msg.power, msg.faceDeg);
-        // "aim-lock" is informational for now: the host's integrator is the
-        // single source of truth for the arrow. Future: freeze aim on lock.
+        if (msg.kind === "swing") {
+          takeStroke(from, msg.power, msg.faceDeg, msg.backspin);
+        } else if (msg.kind === "aim-lock") {
+          // Wii flow: dropping into the address pose freezes the arrow.
+          if (activePeer.current === from) {
+            aimLocked.current = true;
+            meter.current = 0;
+          }
+        } else if (msg.kind === "aim-unlock") {
+          if (activePeer.current === from) {
+            aimLocked.current = false;
+            meter.current = -1;
+          }
+        }
       },
-      feedRot(from, t, rotAlpha) {
+      feedMotion(from, t, rotAlpha, accG) {
         if (phase.current !== "aiming" || activePeer.current !== from) {
           lastRotT.current.set(from, t);
           return;
         }
         const prev = lastRotT.current.get(from);
         lastRotT.current.set(from, t);
+        if (aimLocked.current) {
+          // Address/backswing: mirror the Wii meter on the big screen from the
+          // same tilt-angle math the phone uses.
+          if (accG) {
+            const g = Math.hypot(accG[0], accG[1], accG[2]);
+            if (g > SWING_TUNING.MIN_G) {
+              const c = Math.max(-1, Math.min(1, (SWING_TUNING.ADDRESS_Y_SIGN * accG[1]) / g));
+              const theta = (Math.acos(c) * 180) / Math.PI;
+              meter.current = Math.max(
+                0,
+                Math.min(1, (theta - SWING_TUNING.BACKSWING_START_DEG) / (SWING_TUNING.BACKSWING_MAX_DEG - SWING_TUNING.BACKSWING_START_DEG)),
+              );
+            }
+          }
+          return;
+        }
         if (prev == null) return;
         const dt = Math.min(0.1, Math.max(0, (t - prev) / 1000));
         const next = aimYawDeg.current + AIM_TUNING.SIGN * rotAlpha * dt;
@@ -188,7 +222,7 @@ export function useGameLoop(args: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const refs: GameRefs = { ball, rest, aimYawDeg, activePeer, phase };
+  const refs: GameRefs = { ball, rest, aimYawDeg, activePeer, phase, meter };
   return {
     turn,
     refs,

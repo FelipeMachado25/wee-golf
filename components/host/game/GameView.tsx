@@ -29,7 +29,7 @@ export function GameView({
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-[#0b1020]">
       <GameCanvas hole={HOLE_ONE} refs={refs} playerIndex={playerIndex} />
-      <Hud turn={turn} lastStroke={lastStroke} playerIndex={playerIndex} labels={labels} />
+      <Hud turn={turn} lastStroke={lastStroke} playerIndex={playerIndex} labels={labels} refs={refs} />
       {debug && <TestStrokeBar onFire={fireDebugStroke} />}
     </div>
   );

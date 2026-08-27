@@ -65,7 +65,7 @@ export function HostClient() {
       sendSignal: (to, payload) => conn?.send({ type: "signal", to, payload }),
       onSample: (from, sample) => {
         recordSample(stats, from, sample, "p2p");
-        if (sample.rot) gameBusRef.current?.feedRot(from, sample.t, sample.rot[0]);
+        if (sample.rot) gameBusRef.current?.feedMotion(from, sample.t, sample.rot[0], sample.accG);
       },
       onGame: (from, msg) => gameBusRef.current?.handleGameMessage(from, msg),
       onPeerState: (from, s) => {
@@ -117,7 +117,7 @@ export function HostClient() {
               break;
             case "telemetry-fallback":
               recordSample(stats, msg.from, msg.sample, "relay");
-              if (msg.sample.rot) gameBusRef.current?.feedRot(msg.from, msg.sample.t, msg.sample.rot[0]);
+              if (msg.sample.rot) gameBusRef.current?.feedMotion(msg.from, msg.sample.t, msg.sample.rot[0], msg.sample.accG);
               setPeers((p) => (p[msg.from] && p[msg.from].transport !== "relay" ? { ...p, [msg.from]: { ...p[msg.from], transport: "relay" } } : p));
               break;
             case "game":

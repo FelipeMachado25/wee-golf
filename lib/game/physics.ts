@@ -14,6 +14,7 @@ export interface StrokeInput {
   power: number; // 0..1
   aimDeg: number; // 0 = +z (toward the hole), positive = right
   faceDeg: number; // clubface offset → sidespin/curve, clamped ±10 upstream
+  backspin?: number; // 0..1 — dead-stop swing (Wii style): lift + bite on landing
 }
 
 /** All tuning in one place — Checkpoint F edits THIS object, nothing else. */
@@ -24,6 +25,8 @@ export const PHYS = {
   KD: 0.02, // quadratic air drag coefficient
   KM: 0.0004, // magnus coefficient
   SIDESPIN_MAX: 90, // rad/s at faceDeg 10
+  BACKSPIN_RATE: 200, // rad/s at backspin 1
+  SPIN_BITE: 0.006, // how hard backspin kills tangential velocity on a bounce
   STOP_SPEED: 0.08,
   CAPTURE_SPEED: 1.6,
   ROLL_TRANSITION_VN: 0.6, // bounce weaker than this (m/s normal) → start rolling
@@ -37,12 +40,14 @@ export function launch(from: Vec3, input: StrokeInput): BallState {
   const loft = (PHYS.LOFT_DEG * Math.PI) / 180;
   const aim = (input.aimDeg * Math.PI) / 180;
   const horizontal = speed * Math.cos(loft);
+  const dir = vec(Math.sin(aim), 0, Math.cos(aim));
+  // Sidespin: positive faceDeg curves right (+x) — ŷ×ẑ = x̂.
+  // Backspin: ω = rate·(dir×ŷ) gives (dir×ŷ)×v ∝ +ŷ, i.e. magnus lift.
+  const back = scale(cross(dir, vec(0, 1, 0)), (input.backspin ?? 0) * PHYS.BACKSPIN_RATE);
   return {
     pos: { ...from, y: from.y + 0.03 },
-    vel: vec(horizontal * Math.sin(aim), speed * Math.sin(loft), horizontal * Math.cos(aim)),
-    // clubface offset → sidespin around the vertical axis; positive faceDeg
-    // curves right (+x): ŷ×ẑ = x̂, so positive ωy pushes +x via magnus.
-    spin: vec(0, (input.faceDeg / 10) * PHYS.SIDESPIN_MAX, 0),
+    vel: vec(horizontal * dir.x, speed * Math.sin(loft), horizontal * dir.z),
+    spin: add(vec(0, (input.faceDeg / 10) * PHYS.SIDESPIN_MAX, 0), back),
     phase: "flying",
   };
 }
@@ -72,7 +77,12 @@ function stepFlight(hole: HoleDef, b: BallState, dt: number): BallState {
   const vNormal = scale(n, vn);
   const vTangent = sub(vel, vNormal);
   const e = PHYS.E[surface];
-  const bounced = add(scale(vNormal, -e), scale(vTangent, 0.75));
+  // Backspin bites: the spin component along (travel×ŷ) opposes the roll and
+  // eats tangential velocity at the bounce (a strong bite can pull it back).
+  const travel = norm(vec(vel.x, 0, vel.z));
+  const backAmount = dot(b.spin, cross(travel, vec(0, 1, 0)));
+  const tangentialKeep = Math.max(-0.2, Math.min(0.75, 0.75 - PHYS.SPIN_BITE * backAmount));
+  const bounced = add(scale(vNormal, -e), scale(vTangent, tangentialKeep));
   const spin = scale(b.spin, PHYS.SPIN_DECAY);
   const rest = { x: pos.x, y: ground, z: pos.z };
 

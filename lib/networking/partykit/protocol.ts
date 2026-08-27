@@ -38,7 +38,8 @@ export type TelemetrySample = {
 export type GameMessage =
   // controller → host
   | { kind: "aim-lock"; aimDeg: number }
-  | { kind: "swing"; power: number; faceDeg: number }
+  | { kind: "aim-unlock" } // left the address pose without striking
+  | { kind: "swing"; power: number; faceDeg: number; backspin: number }
   // host → controller
   | { kind: "turn"; yourTurn: boolean; strokeIndex: number }
   | { kind: "stroke-result"; outcome: "stopped" | "holed" | "oob"; distToCup: number }
@@ -94,8 +95,10 @@ export function isGameMessage(v: unknown): v is GameMessage {
   switch (v.kind) {
     case "aim-lock":
       return typeof v.aimDeg === "number";
+    case "aim-unlock":
+      return true;
     case "swing":
-      return typeof v.power === "number" && typeof v.faceDeg === "number";
+      return typeof v.power === "number" && typeof v.faceDeg === "number" && typeof v.backspin === "number";
     case "turn":
       return typeof v.yourTurn === "boolean" && typeof v.strokeIndex === "number";
     case "stroke-result":

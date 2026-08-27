@@ -106,6 +106,25 @@ describe("step", () => {
     expect(passed).toBe(true);
   });
 
+  it("backspin lifts the flight and bites on landing", () => {
+    const flat = playStroke({ power: 0.7, aimDeg: 0, faceDeg: 0, backspin: 0 }).b;
+    const spun = playStroke({ power: 0.7, aimDeg: 0, faceDeg: 0, backspin: 1 }).b;
+    // bites: comes to rest meaningfully shorter than the flat shot
+    expect(spun.pos.z).toBeLessThan(flat.pos.z - 2);
+
+    // lifts: apex of the spun flight is higher
+    const apex = (backspin: number) => {
+      let b = launch(HOLE_ONE.tee, { power: 0.7, aimDeg: 0, faceDeg: 0, backspin });
+      let top = 0;
+      while (b.phase === "flying") {
+        b = step(HOLE_ONE, b, DT);
+        top = Math.max(top, b.pos.y);
+      }
+      return top;
+    };
+    expect(apex(1)).toBeGreaterThan(apex(0) + 0.25);
+  });
+
   it("the ball never rests below the terrain", () => {
     const { b } = playStroke({ power: 0.9, aimDeg: 5, faceDeg: -5 });
     if (b.phase === "stopped") {

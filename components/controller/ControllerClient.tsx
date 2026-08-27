@@ -5,11 +5,11 @@ import type { GameMessage, PeerId, TelemetrySample } from "@/lib/networking/part
 import { connectRoom, type RoomConnection } from "@/lib/networking/partykit/client";
 import { createControllerPeer, type ControllerPeer } from "@/lib/networking/webrtc/peer-controller";
 import { P2P_FALLBACK_TIMEOUT_MS } from "@/lib/networking/webrtc/config";
-import { createSwingDetector } from "@/lib/game/swing";
+import { createWiiSwing } from "@/lib/game/swing";
 import { playRumble } from "@/lib/audio/rumble";
 import { ConnectionBadge, type ConnectionPhase } from "./ConnectionBadge";
 import { PermissionGate } from "./PermissionGate";
-import { GamePad, type PadState } from "./GamePad";
+import { GamePad, type PadState, type SwingPhase } from "./GamePad";
 
 export function ControllerClient({ roomId }: { roomId: string }) {
   const [phase, setPhase] = useState<ConnectionPhase>("connecting");
@@ -22,30 +22,64 @@ export function ControllerClient({ roomId }: { roomId: string }) {
 
   // --- game pad state --------------------------------------------------------
   const [turn, setTurn] = useState<PadState["turn"]>(null);
-  const [aimLocked, setAimLocked] = useState(false);
+  const [swingPhase, setSwingPhase] = useState<SwingPhase>("aim");
   const [swung, setSwung] = useState(false);
   const [result, setResult] = useState<PadState["result"]>(null);
   const [finished, setFinished] = useState<PadState["finished"]>(null);
   const detectorArmed = useRef(false);
+  const meterRef = useRef(0);
+  const gyRef = useRef(0);
 
   const sendGameToHost = useCallback((msg: GameMessage) => {
     if (peerRef.current?.sendGame(msg)) return;
     connRef.current?.send({ type: "game", to: "host", payload: msg });
   }, []);
 
+  // Wii swing machine: address (club-down hold) → backswing meter → strike,
+  // dead stop after impact = backspin. Events drive the pad UI.
+  const detector = useRef(
+    createWiiSwing((e) => {
+      switch (e.type) {
+        case "address":
+          setSwingPhase("address");
+          meterRef.current = 0;
+          sendGameToHost({ kind: "aim-lock", aimDeg: 0 });
+          playRumble({ hz: 60, ms: 80 }); // tactile "locked" tick
+          break;
+        case "meter":
+          meterRef.current = e.power;
+          setSwingPhase((p) => (p === "backswing" ? p : "backswing"));
+          break;
+        case "cancel":
+          setSwingPhase("aim");
+          meterRef.current = 0;
+          sendGameToHost({ kind: "aim-unlock" });
+          break;
+        case "swing":
+          detectorArmed.current = false;
+          setSwung(true);
+          setSwingPhase("aim");
+          sendGameToHost({ kind: "swing", power: e.power, faceDeg: e.faceDeg, backspin: e.backspin });
+          break;
+      }
+    }),
+  );
+
   const handleGame = useCallback((msg: GameMessage) => {
     switch (msg.kind) {
       case "turn":
         setTurn({ yourTurn: msg.yourTurn, strokeIndex: msg.strokeIndex });
-        setAimLocked(false);
+        setSwingPhase("aim");
         setSwung(false);
-        detectorArmed.current = false;
+        meterRef.current = 0;
+        detector.current.reset();
+        detectorArmed.current = msg.yourTurn;
         if (msg.yourTurn) playRumble({ hz: 60, ms: 200 }); // ¡te toca!
         break;
       case "stroke-result":
         setResult(msg);
         setSwung(false);
-        setAimLocked(false);
+        setSwingPhase("aim");
         detectorArmed.current = false;
         if (msg.outcome === "holed") {
           playRumble({ hz: 60, ms: 150 });
@@ -62,25 +96,10 @@ export function ControllerClient({ roomId }: { roomId: string }) {
   const handleGameRef = useRef(handleGame);
   handleGameRef.current = handleGame;
 
-  const detector = useRef(
-    createSwingDetector((s) => {
-      if (!detectorArmed.current) return;
-      detectorArmed.current = false;
-      setSwung(true);
-      sendGameToHost({ kind: "swing", power: s.power, faceDeg: s.faceDeg });
-    }),
-  );
-
   const onMotion = useCallback((s: Omit<TelemetrySample, "seq">) => {
+    if (s.accG) gyRef.current = s.accG[1];
     if (detectorArmed.current) detector.current.feed({ t: s.t, accG: s.accG, rot: s.rot });
   }, []);
-
-  function lockAim() {
-    detector.current.reset();
-    detectorArmed.current = true;
-    setAimLocked(true);
-    sendGameToHost({ kind: "aim-lock", aimDeg: 0 });
-  }
 
   // --- connection ------------------------------------------------------------
   useEffect(() => {
@@ -181,8 +200,9 @@ export function ControllerClient({ roomId }: { roomId: string }) {
       <div className="font-mono text-2xl tracking-[0.3em] text-emerald-400">{roomId}</div>
       <ConnectionBadge phase={phase} hidden={hidden} />
       <GamePad
-        state={{ turn, aimLocked, swung, result, finished, myPeerId: myPeerIdRef.current }}
-        onLockAim={lockAim}
+        state={{ turn, swingPhase, swung, result, finished, myPeerId: myPeerIdRef.current }}
+        meterRef={meterRef}
+        gyRef={gyRef}
       />
       <PermissionGate sendSample={sendSample} onMotion={onMotion} />
     </main>
