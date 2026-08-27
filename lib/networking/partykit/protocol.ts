@@ -44,6 +44,7 @@ export type GameMessage =
   | { kind: "aim-lock"; aimDeg: number }
   | { kind: "aim-unlock" } // left the address pose without striking
   | { kind: "club"; club: ClubIdWire }
+  | { kind: "profile"; name: string; face?: string } // face: small data-URL selfie
   | { kind: "swing"; power: number; faceDeg: number; backspin: number }
   // host → controller
   | { kind: "turn"; yourTurn: boolean; strokeIndex: number; club: ClubIdWire; distToCup: number }
@@ -106,6 +107,14 @@ export function isGameMessage(v: unknown): v is GameMessage {
       return true;
     case "club":
       return v.club === "driver" || v.club === "iron" || v.club === "wedge" || v.club === "putter";
+    case "profile":
+      // Name: user-chosen, uncapped in content by design; only sanity-bounded.
+      // Face: small data-URL (client downsizes to 128px) — cap the bytes.
+      return (
+        typeof v.name === "string" &&
+        v.name.length <= 24 &&
+        (v.face === undefined || (typeof v.face === "string" && v.face.length <= 120_000 && v.face.startsWith("data:image/")))
+      );
     case "swing":
       return typeof v.power === "number" && typeof v.faceDeg === "number" && typeof v.backspin === "number";
     case "turn":

@@ -98,6 +98,13 @@ lib/audio/rumble.ts                Web Audio low-freq "vibration" pulse
 
 ## Phase status
 
+- **Phase 2C (clubs, minimap, avatars): BUILT 2026-08-26** — real club set
+  (`lib/game/clubs.ts`: driver/iron/wedge/putter) whose displayed max ranges are MEASURED
+  by simulating a full-power stroke, not hand-typed; the putter launches straight into the
+  rolling phase, which is what makes the short game dosable. Host auto-suggests a club from
+  distance+surface, phone can override. Top-down minimap with aim line and club range arc.
+  Low-poly suit avatars per player (name tag + selfie face texture, or a seeded
+  procedurally ugly face when no photo is given); arms track the live backswing meter.
 - **Phase 2B (multi-hole courses): BUILT 2026-08-26** — seeded parametric hole generator
   (`lib/game/course.ts`, same HoleDef contract), 3/6/9-hole selector in the host lobby,
   automatic hole sequencing with per-hole and course-total scorecards. Swing is Wii-style

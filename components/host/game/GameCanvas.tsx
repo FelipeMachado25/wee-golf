@@ -6,6 +6,7 @@ import * as THREE from "three";
 import type { HoleDef } from "@/lib/game/terrain";
 import type { GameRefs } from "./useGameLoop";
 import type { PeerId } from "@/lib/networking/partykit/protocol";
+import { Avatars, type Profile } from "./Avatars";
 
 export const PLAYER_COLORS = ["#f87171", "#60a5fa", "#facc15", "#c084fc", "#34d399", "#fb923c"];
 
@@ -20,7 +21,17 @@ const SURFACE_COLOR: Record<string, string> = {
 
 const BALL_VISUAL_R = 0.35; // physical ball is invisible at 90m — render bigger
 
-export function GameCanvas({ hole, refs, playerIndex }: { hole: HoleDef; refs: GameRefs; playerIndex: Map<PeerId, number> }) {
+export function GameCanvas({
+  hole,
+  refs,
+  playerIndex,
+  profiles,
+}: {
+  hole: HoleDef;
+  refs: GameRefs;
+  playerIndex: Map<PeerId, number>;
+  profiles: Record<PeerId, Profile>;
+}) {
   return (
     <Canvas
       camera={{ position: [0, 14, -14], fov: 55, near: 0.1, far: 500 }}
@@ -35,6 +46,7 @@ export function GameCanvas({ hole, refs, playerIndex }: { hole: HoleDef; refs: G
       <Terrain hole={hole} />
       <Cup hole={hole} />
       <Balls hole={hole} refs={refs} playerIndex={playerIndex} />
+      <Avatars hole={hole} refs={refs} playerIndex={playerIndex} profiles={profiles} />
       <AimArrow hole={hole} refs={refs} />
       <CameraRig hole={hole} refs={refs} />
     </Canvas>

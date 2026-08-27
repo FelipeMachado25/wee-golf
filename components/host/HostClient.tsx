@@ -10,6 +10,7 @@ import { generateRoomId } from "@/lib/room/room-id";
 import { QrPanel } from "./QrPanel";
 import { TelemetryDebug } from "./TelemetryDebug";
 import type { GameBus } from "./game/useGameLoop";
+import type { Profile } from "./game/Avatars";
 
 // three.js only ever loads in the browser
 const GameView = dynamic(() => import("./game/GameView").then((m) => m.GameView), { ssr: false });
@@ -44,6 +45,7 @@ export function HostClient() {
   const [peers, setPeers] = useState<Record<PeerId, PeerRow>>({});
   const [mode, setMode] = useState<"lobby" | "playing">("lobby");
   const [holeCount, setHoleCount] = useState(3);
+  const [profiles, setProfiles] = useState<Record<PeerId, Profile>>({});
   const [debug, setDebug] = useState(false);
   const seedRef = useRef((Date.now() ^ (Math.random() * 0xffffffff)) >>> 0);
   const statsRef = useRef<Map<PeerId, PeerStats>>(new Map());
@@ -63,13 +65,23 @@ export function HostClient() {
     const hostPeerId = crypto.randomUUID();
     const stats = statsRef.current;
 
+    // Profiles can arrive while still in the lobby, when no game bus exists —
+    // HostClient owns them and everything else forwards to the running game.
+    const handleGameMsg = (from: PeerId, msg: GameMessage) => {
+      if (msg.kind === "profile") {
+        setProfiles((p) => ({ ...p, [from]: { name: msg.name.trim().slice(0, 24), face: msg.face } }));
+        return;
+      }
+      gameBusRef.current?.handleGameMessage(from, msg);
+    };
+
     const registry = createHostPeerRegistry({
       sendSignal: (to, payload) => conn?.send({ type: "signal", to, payload }),
       onSample: (from, sample) => {
         recordSample(stats, from, sample, "p2p");
         if (sample.rot) gameBusRef.current?.feedMotion(from, sample.t, sample.rot[0], sample.accG);
       },
-      onGame: (from, msg) => gameBusRef.current?.handleGameMessage(from, msg),
+      onGame: handleGameMsg,
       onPeerState: (from, s) => {
         setPeers((p) => (p[from] ? { ...p, [from]: { ...p[from], rtcState: s, transport: s === "connected" ? "p2p" : p[from].transport } } : p));
       },
@@ -123,7 +135,7 @@ export function HostClient() {
               setPeers((p) => (p[msg.from] && p[msg.from].transport !== "relay" ? { ...p, [msg.from]: { ...p[msg.from], transport: "relay" } } : p));
               break;
             case "game":
-              gameBusRef.current?.handleGameMessage(msg.from, msg.payload);
+              handleGameMsg(msg.from, msg.payload);
               break;
           }
         },
@@ -151,6 +163,7 @@ export function HostClient() {
           sendGame={(to, msg) => sendGameRef.current(to, msg)}
           busRef={gameBusRef}
           debug={debug}
+          profiles={profiles}
         />
         {/* QR shrinks to a corner so latecomers can still join */}
         {roomId && (

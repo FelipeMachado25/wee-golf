@@ -11,6 +11,7 @@ import { playRumble } from "@/lib/audio/rumble";
 import { ConnectionBadge, type ConnectionPhase } from "./ConnectionBadge";
 import { PermissionGate } from "./PermissionGate";
 import { GamePad, type PadState, type SwingPhase } from "./GamePad";
+import { ProfileEditor } from "./ProfileEditor";
 
 export function ControllerClient({ roomId }: { roomId: string }) {
   const [phase, setPhase] = useState<ConnectionPhase>("connecting");
@@ -86,6 +87,16 @@ export function ControllerClient({ roomId }: { roomId: string }) {
     (c: ClubId) => {
       setClub(c);
       sendGameToHost({ kind: "club", club: c });
+    },
+    [sendGameToHost],
+  );
+
+  // Profile survives reconnects and re-sends once the reliable lane is up.
+  const profileRef = useRef<{ name: string; face?: string } | null>(null);
+  const saveProfile = useCallback(
+    (p: { name: string; face?: string }) => {
+      profileRef.current = p;
+      sendGameToHost({ kind: "profile", ...p });
     },
     [sendGameToHost],
   );
@@ -169,6 +180,9 @@ export function ControllerClient({ roomId }: { roomId: string }) {
             channelEverOpened = true;
             if (fallbackTimer) clearTimeout(fallbackTimer);
             setPhase("p2p");
+            // Re-announce the profile: the host may have (re)started since.
+            const p = profileRef.current;
+            if (p) peer?.sendGame({ kind: "profile", ...p });
           },
           onChannelClose: () => setPhase((p) => (p === "relay" ? p : "disconnected")),
         },
@@ -237,6 +251,7 @@ export function ControllerClient({ roomId }: { roomId: string }) {
       </h1>
       <div className="font-mono text-2xl tracking-[0.3em] text-emerald-400">{roomId}</div>
       <ConnectionBadge phase={phase} hidden={hidden} />
+      {!turn?.yourTurn && <ProfileEditor initialName="Player" onSave={saveProfile} />}
       <GamePad
         state={{ turn, club, swingPhase, swung, result, hole, finished, courseTotals, myPeerId: myPeerIdRef.current }}
         meterRef={meterRef}
