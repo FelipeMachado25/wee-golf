@@ -32,10 +32,23 @@ export type TelemetrySample = {
   interval: number;                           // event.interval in ms
 };
 
+/** Discrete game events. They ride the reliable "events" RTCDataChannel when
+ *  it is open, else the WebSocket relay ({type:"game"}). Never the unreliable
+ *  telemetry channel — a lost swing is a lost stroke. */
+export type GameMessage =
+  // controller → host
+  | { kind: "aim-lock"; aimDeg: number }
+  | { kind: "swing"; power: number; faceDeg: number }
+  // host → controller
+  | { kind: "turn"; yourTurn: boolean; strokeIndex: number }
+  | { kind: "stroke-result"; outcome: "stopped" | "holed" | "oob"; distToCup: number }
+  | { kind: "hole-finished"; scores: { peerId: PeerId; strokes: number; holed: boolean }[] };
+
 /** client → server */
 export type ClientMessage =
   | { type: "signal"; to: PeerId; payload: SignalPayload }
-  | { type: "telemetry-fallback"; sample: TelemetrySample };
+  | { type: "telemetry-fallback"; sample: TelemetrySample }
+  | { type: "game"; to: PeerId | "host"; payload: GameMessage };
 
 /** server → client */
 export type ServerMessage =
@@ -44,7 +57,8 @@ export type ServerMessage =
   | { type: "peer-joined"; peer: PeerInfo }
   | { type: "peer-left"; peerId: PeerId }
   | { type: "signal"; from: PeerId; payload: SignalPayload }
-  | { type: "telemetry-fallback"; from: PeerId; sample: TelemetrySample };
+  | { type: "telemetry-fallback"; from: PeerId; sample: TelemetrySample }
+  | { type: "game"; from: PeerId; payload: GameMessage };
 
 // ---------------------------------------------------------------------------
 // Runtime guards. Network input is never cast blindly — anything that does not
@@ -75,6 +89,24 @@ function isPeerInfo(v: unknown): v is PeerInfo {
   return isRec(v) && typeof v.peerId === "string" && (v.role === "host" || v.role === "controller");
 }
 
+export function isGameMessage(v: unknown): v is GameMessage {
+  if (!isRec(v)) return false;
+  switch (v.kind) {
+    case "aim-lock":
+      return typeof v.aimDeg === "number";
+    case "swing":
+      return typeof v.power === "number" && typeof v.faceDeg === "number";
+    case "turn":
+      return typeof v.yourTurn === "boolean" && typeof v.strokeIndex === "number";
+    case "stroke-result":
+      return (v.outcome === "stopped" || v.outcome === "holed" || v.outcome === "oob") && typeof v.distToCup === "number";
+    case "hole-finished":
+      return Array.isArray(v.scores);
+    default:
+      return false;
+  }
+}
+
 export function isServerMessage(v: unknown): v is ServerMessage {
   if (!isRec(v)) return false;
   switch (v.type) {
@@ -90,6 +122,8 @@ export function isServerMessage(v: unknown): v is ServerMessage {
       return typeof v.from === "string" && isSignalPayload(v.payload);
     case "telemetry-fallback":
       return typeof v.from === "string" && isTelemetrySample(v.sample);
+    case "game":
+      return typeof v.from === "string" && isGameMessage(v.payload);
     default:
       return false;
   }
@@ -102,6 +136,8 @@ export function isClientMessage(v: unknown): v is ClientMessage {
       return typeof v.to === "string" && isSignalPayload(v.payload);
     case "telemetry-fallback":
       return isTelemetrySample(v.sample);
+    case "game":
+      return typeof v.to === "string" && isGameMessage(v.payload);
     default:
       return false;
   }

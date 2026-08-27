@@ -30,4 +30,13 @@ describe("isClientMessage", () => {
   it("rejects a signal without a target", () => {
     expect(isClientMessage({ type: "signal", payload: { kind: "answer", sdp: "v=0" } })).toBe(false);
   });
+
+  it("accepts a game message routed to the host", () => {
+    expect(isClientMessage({ type: "game", to: "host", payload: { kind: "swing", power: 0.8, faceDeg: -3 } })).toBe(true);
+  });
+
+  it("rejects a game message with a malformed payload", () => {
+    expect(isClientMessage({ type: "game", to: "host", payload: { kind: "swing" } })).toBe(false);
+    expect(isClientMessage({ type: "game", to: "host", payload: { kind: "nope" } })).toBe(false);
+  });
 });

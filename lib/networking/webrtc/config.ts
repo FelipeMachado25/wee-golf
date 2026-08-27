@@ -4,6 +4,7 @@ export const ICE_SERVERS: { urls: string | string[] }[] = [
 ];
 
 export const TELEMETRY_CHANNEL_LABEL = "telemetry";
+export const EVENTS_CHANNEL_LABEL = "events";
 
 /** The whole point of using WebRTC here: unreliable, unordered datagram-style
  *  delivery. A lost sample is worthless 16ms later — never retransmit. */

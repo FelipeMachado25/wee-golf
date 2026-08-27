@@ -1,5 +1,6 @@
-import type { IceCandidateInit, PeerId, SignalPayload, TelemetrySample } from "../partykit/protocol";
-import { DATA_CHANNEL_INIT, ICE_SERVERS, TELEMETRY_CHANNEL_LABEL } from "./config";
+import type { GameMessage, IceCandidateInit, PeerId, SignalPayload, TelemetrySample } from "../partykit/protocol";
+import { isGameMessage } from "../partykit/protocol";
+import { DATA_CHANNEL_INIT, EVENTS_CHANNEL_LABEL, ICE_SERVERS, TELEMETRY_CHANNEL_LABEL } from "./config";
 import { createIceBuffer } from "./ice-buffer";
 
 export type ControllerPeerEvents = {
@@ -14,17 +15,30 @@ export function createControllerPeer(args: {
   hostPeerId: PeerId;
   sendSignal: (to: PeerId, payload: SignalPayload) => void;
   events: ControllerPeerEvents;
+  onGame?: (msg: GameMessage) => void;
 }) {
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   const iceBuffer = createIceBuffer(async (c) => {
     await pc.addIceCandidate(c);
   });
 
-  // The channel must exist BEFORE createOffer so the m=application section
+  // Channels must exist BEFORE createOffer so the m=application section
   // makes it into the SDP.
   const dc = pc.createDataChannel(TELEMETRY_CHANNEL_LABEL, DATA_CHANNEL_INIT);
   dc.onopen = () => args.events.onChannelOpen();
   dc.onclose = () => args.events.onChannelClose();
+
+  // Reliable, ordered lane for discrete game events (swings, turns).
+  const ec = pc.createDataChannel(EVENTS_CHANNEL_LABEL, { ordered: true });
+  ec.onmessage = (m) => {
+    if (typeof m.data !== "string") return;
+    try {
+      const parsed: unknown = JSON.parse(m.data);
+      if (isGameMessage(parsed)) args.onGame?.(parsed);
+    } catch {
+      /* drop malformed */
+    }
+  };
 
   pc.onconnectionstatechange = () => args.events.onState(pc.connectionState);
   pc.onicecandidate = (e) => {
@@ -58,8 +72,16 @@ export function createControllerPeer(args: {
       return true;
     },
 
+    /** Reliable lane. Returns false when the caller must use the WS fallback. */
+    sendGame(msg: GameMessage): boolean {
+      if (ec.readyState !== "open") return false;
+      ec.send(JSON.stringify(msg));
+      return true;
+    },
+
     close() {
       dc.close();
+      ec.close();
       pc.close();
     },
   };

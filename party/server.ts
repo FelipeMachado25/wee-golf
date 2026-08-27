@@ -60,6 +60,14 @@ export class WeeGolfRoom extends Server<Env> {
     if (msg.type === "telemetry-fallback") {
       const host = this.findHost();
       if (host) this.sendTo(host, { type: "telemetry-fallback", from, sample: msg.sample });
+      return;
+    }
+
+    if (msg.type === "game") {
+      // Reliable game events over the WS fallback path. "host" resolves to
+      // whoever holds the host role so controllers need no peerId lookup.
+      const target = msg.to === "host" ? this.findHost() : this.findByPeerId(msg.to);
+      if (target) this.sendTo(target, { type: "game", from, payload: msg.payload });
     }
   }
 

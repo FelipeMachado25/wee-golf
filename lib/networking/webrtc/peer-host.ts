@@ -1,10 +1,13 @@
-import type { IceCandidateInit, PeerId, SignalPayload, TelemetrySample } from "../partykit/protocol";
+import type { GameMessage, IceCandidateInit, PeerId, SignalPayload, TelemetrySample } from "../partykit/protocol";
+import { isGameMessage } from "../partykit/protocol";
+import { EVENTS_CHANNEL_LABEL } from "./config";
 import { ICE_SERVERS } from "./config";
 import { createIceBuffer, type IceBuffer } from "./ice-buffer";
 
 type PeerSession = {
   pc: RTCPeerConnection;
   iceBuffer: IceBuffer;
+  events: RTCDataChannel | null;
 };
 
 /** The host side: one RTCPeerConnection per controller, keyed by peerId, so N
@@ -15,6 +18,7 @@ export function createHostPeerRegistry(args: {
   sendSignal: (to: PeerId, payload: SignalPayload) => void;
   onSample: (from: PeerId, sample: TelemetrySample) => void;
   onPeerState: (from: PeerId, s: RTCPeerConnectionState) => void;
+  onGame?: (from: PeerId, msg: GameMessage) => void;
 }) {
   const sessions = new Map<PeerId, PeerSession>();
 
@@ -25,6 +29,21 @@ export function createHostPeerRegistry(args: {
     });
 
     pc.ondatachannel = (e) => {
+      if (e.channel.label === EVENTS_CHANNEL_LABEL) {
+        const session = sessions.get(from);
+        if (session) session.events = e.channel;
+        e.channel.onmessage = (m) => {
+          if (typeof m.data !== "string") return;
+          try {
+            const parsed: unknown = JSON.parse(m.data);
+            if (isGameMessage(parsed)) args.onGame?.(from, parsed);
+          } catch {
+            /* drop malformed */
+          }
+        };
+        return;
+      }
+      // telemetry (unreliable) channel
       e.channel.onmessage = (m) => {
         if (typeof m.data !== "string") return;
         try {
@@ -41,7 +60,7 @@ export function createHostPeerRegistry(args: {
       }
     };
 
-    const session = { pc, iceBuffer };
+    const session: PeerSession = { pc, iceBuffer, events: null };
     sessions.set(from, session);
     return session;
   }
@@ -62,6 +81,14 @@ export function createHostPeerRegistry(args: {
         await sessions.get(from)?.iceBuffer.add(payload.candidate);
       }
       // "answer" is never valid here — the host is the answerer.
+    },
+
+    /** Reliable lane to one controller. False → caller uses the WS fallback. */
+    sendGame(peerId: PeerId, msg: GameMessage): boolean {
+      const ec = sessions.get(peerId)?.events;
+      if (!ec || ec.readyState !== "open") return false;
+      ec.send(JSON.stringify(msg));
+      return true;
     },
 
     removePeer(peerId: PeerId) {
